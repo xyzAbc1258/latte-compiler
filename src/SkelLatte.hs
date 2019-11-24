@@ -19,6 +19,7 @@ transTopDef :: Show a => TopDef a -> Result
 transTopDef x = case x of
   FnDef _ type_ ident args block -> failure x
   ClDef _ ident ext cldecls -> failure x
+  Struct _ ident types -> failure x
 transArg :: Show a => Arg a -> Result
 transArg x = case x of
   Arg _ type_ ident -> failure x
@@ -29,7 +30,7 @@ transClDecl x = case x of
 transExt :: Show a => Ext a -> Result
 transExt x = case x of
   NoExt _ -> failure x
-  ClassExt _ type_ -> failure x
+  ClassExt _ ident -> failure x
 transBlock :: Show a => Block a -> Result
 transBlock x = case x of
   Block _ stmts -> failure x
@@ -58,22 +59,24 @@ transType x = case x of
   Str _ -> failure x
   Bool _ -> failure x
   Void _ -> failure x
-  Class _ ident -> failure x
   Array _ type_ -> failure x
+  Class _ ident -> failure x
   Fun _ type_ types -> failure x
+  Ptr _ type_ -> failure x
 transExpr :: Show a => Expr a -> Result
 transExpr x = case x of
   EVar _ ident -> failure x
   ELitInt _ integer -> failure x
   ELitTrue _ -> failure x
   ELitFalse _ -> failure x
-  ENewObj _ type_ -> failure x
-  EObjFldAcc _ expr ident -> failure x
-  EObjFuncApp _ expr ident exprs -> failure x
-  ENewArr _ type_ expr -> failure x
+  EFldAcc _ expr ident -> failure x
   EArrAcc _ expr1 expr2 -> failure x
-  EApp _ ident exprs -> failure x
+  ENewObj _ type_ -> failure x
+  ENewArr _ type_ expr -> failure x
+  EApp _ expr exprs -> failure x
   EString _ string -> failure x
+  ENull _ -> failure x
+  ECast _ type_ expr -> failure x
   Neg _ expr -> failure x
   Not _ expr -> failure x
   EMul _ expr1 mulop expr2 -> failure x
@@ -81,6 +84,8 @@ transExpr x = case x of
   ERel _ expr1 relop expr2 -> failure x
   EAnd _ expr1 expr2 -> failure x
   EOr _ expr1 expr2 -> failure x
+  EVirtCall _ expr integer exprs -> failure x
+  EFldNoAcc _ expr integer -> failure x
 transAddOp :: Show a => AddOp a -> Result
 transAddOp x = case x of
   Plus _ -> failure x

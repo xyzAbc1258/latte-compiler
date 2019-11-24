@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f8900af6a574257981390174311efea8dba5966b50615c8e476e59d87744a2cd
+-- hash: e70d6934634c866563ace1394445894635d979f113da33e4f0127c8304b53a70
 
 name:           latte-compiler
 version:        0.1.0.0
@@ -28,15 +28,20 @@ source-repository head
 library
   exposed-modules:
       AbsLatte
+      Common.ASTModifier
+      Common.ASTUtils
+      Common.Graphs
+      Common.Utils
       ErrM
       LexLatte
-      Lib
       ParLatte
       PrintLatte
       SkelLatte
       TestLatte
-      TypeCheckCommon
-      TypeChecker
+      TypeChecker.TypeCheckCommon
+      TypeChecker.TypeChecker
+      TypeChecker.TypeCheckUtils
+      TypeChecker.TypeUtils
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
@@ -55,7 +60,7 @@ executable latte-compiler-exe
       Paths_latte_compiler
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -threaded -rtsopts
   build-depends:
       array
     , base >=4.7 && <5

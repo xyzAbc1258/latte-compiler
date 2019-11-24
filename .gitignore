@@ -2,3 +2,5 @@
 *~
 out
 .idea
+*.exe
+bnfc-folder

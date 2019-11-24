@@ -12,7 +12,7 @@ Arg. 	   Arg ::= Type Ident;
 
 separator  Arg "," ;
 
-ClDef.     TopDef ::= "class" Ident Ext "(" [ClDecl]  ")" ;
+ClDef.     TopDef ::= "class" Ident Ext "{" [ClDecl]  "}" ;
 
 separator nonempty ClDecl "" ;
 
@@ -20,9 +20,9 @@ ClFld.	   ClDecl ::= Type Ident ";" ;
 
 ClFunc.    ClDecl ::= Type Ident "(" [Arg] ")" Block ;
 
-NoExt.	   Ext ::= "" ;
+NoExt.	   Ext ::= ;
 
-ClassExt.  Ext ::= "extends" Type ;
+ClassExt.  Ext ::= "extends" Ident ;
 
 -- statements ----------------------------------------------
 
@@ -42,11 +42,11 @@ Init.      Item ::= Ident "=" Expr ;
 
 separator nonempty Item "," ;
 
-Ass.       Stmt ::= Expr "=" Expr  ";" ;
+Ass.       Stmt ::= Expr6 "=" Expr  ";" ;
 
-Incr.      Stmt ::= Expr "++"  ";" ;
+Incr.      Stmt ::= Expr6 "++"  ";" ;
 
-Decr.      Stmt ::= Expr "--"  ";" ;
+Decr.      Stmt ::= Expr6 "--"  ";" ;
 
 Ret.       Stmt ::= "return" Expr ";" ;
 
@@ -58,7 +58,7 @@ CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
 
 While.     Stmt ::= "while" "(" Expr ")" Stmt ;
 
-For.	   Stmt ::= "for" "(" Type Ident "in" Expr ")" Stmt ;
+For.       Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt ;
 
 SExp.      Stmt ::= Expr  ";" ;
 
@@ -72,9 +72,9 @@ Bool.      Type ::= "boolean" ;
 
 Void.      Type ::= "void" ;
 
-Class.     Type ::= Ident ;
-
 Array.	   Type ::= Type "[" "]" ;
+
+Class.	   Type ::= Ident ;
 
 internal   Fun. Type ::= Type "(" [Type] ")" ;
 
@@ -90,17 +90,21 @@ ELitTrue.  Expr6 ::= "true" ;
 
 ELitFalse. Expr6 ::= "false" ;
 
-ENewObj.   Expr6 ::= "new" Type ;
+EFldAcc.   Expr6 ::= Expr6 "." Ident ;
 
-EObjFldAcc. Expr6 ::= Expr "." Ident ;
+EArrAcc.   Expr6 ::= Expr6 "[" Expr3 "]" ;
 
-EObjFuncApp. Expr6 ::= Expr "." Ident "(" [Expr] ")" ;
+ENewObj.   Expr6 ::= "new" Type ArraySizeInit;
 
-ENewArr.   Expr6 ::= "new" Type "[" Expr "]" ;
+ENoArr.    ArraySizeInit ::= ;
 
-EArrAcc.   Expr6 ::= Expr "[" Expr "]" ;
+EArrSize.  ArraySizeInit ::= "[" Expr3 "]" ;
 
-EApp.      Expr6 ::= Ident "(" [Expr] ")" ;
+EApp.      Expr6 ::= Expr6 "(" [Expr] ")" ;
+
+ENull.     Expr6 ::= "null" ;
+
+ECast.     Expr6 ::= "(" Type ")" Expr6 ;
 
 EString.   Expr6 ::= String ;
 
@@ -117,6 +121,10 @@ ERel.      Expr2 ::= Expr2 RelOp Expr3 ;
 EAnd.      Expr1 ::= Expr2 "&&" Expr1 ;
 
 EOr.       Expr ::= Expr1 "||" Expr ;
+
+internal   EVirtCall. Expr ::= Expr Integer [Expr] ;
+
+internal   EFldNoAcc. Expr ::= Expr Integer ;
 
 coercions  Expr 6 ;
 

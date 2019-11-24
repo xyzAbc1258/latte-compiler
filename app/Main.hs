@@ -11,7 +11,7 @@ import ParLatte
 import SkelLatte
 import PrintLatte
 import AbsLatte
-import TypeChecker(checkTypes)
+import TypeChecker.TypeChecker(checkTypes)
 
 
 
@@ -37,9 +37,10 @@ run v p s = let ts = myLLexer s in case p ts of
                           putStrLn s
                           exitFailure
            Ok  tree -> do putStrLn "\nParse Successful!"
+                          --print (fmap (const ()) tree)
                           case checkTypes tree of
-                            Left s -> putStrLn s
-                            Right () -> putStrLn "Ok"
+                            Left s -> print s
+                            Right s -> putStrLn "Ok1" >>putStrLn  (printTree s)
                           exitSuccess
 
 
