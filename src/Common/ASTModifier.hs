@@ -2,43 +2,37 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 module Common.ASTModifier where
 import TypeChecker.TypeCheckUtils(TypeChecker)
 import Control.Monad.Cont
+import Control.Monad.Identity
 import AbsLatte
 
-data ASTModifier m a b = ASTModifier {
-    modifyProgram::Program a ->m (Program b),
-    modifyTopDefs::[TopDef a] -> m [TopDef b],
-    modifyTopDef::TopDef a -> m (TopDef b),
-    modifyStmts::[Stmt a] -> m [Stmt b],
-    modifyStmt::Stmt a -> m (Stmt b),
-    modifyExpr::Expr a -> m (Expr b),
-    modifyType::Type a -> m (Type b),
-    modifyArg::Arg a -> m (Arg b)
-}
+type S m t = t -> m t
 
-idModifier::(Monad m) => ASTModifier m a a
-idModifier = ASTModifier {
-  modifyProgram = return,
-  modifyTopDefs = return,
-  modifyTopDef = return,
-  modifyStmts = return,
-  modifyStmt = return,
-  modifyExpr = return
-}
+class ASTModifiable t r | t -> r where
+  modify::(Monad m) => S m t -> S m r
 
-class ASTModifiable t where
-  modify::ASTModifier m a b -> t a -> m (t b)
+instance ASTModifiable (Program a) (Program a) where
+  modify = id
 
-instance ASTModifiable Program where
-  modify = modifyProgram
-  
-instance ASTModifiable TopDef where
-  modify = modifyTopDef
-  
-instance ASTModifiable Expr where
-  modify = modifyExpr
-  
-instance ASTModifiable Stmt where
-  modify = modifyStmt
+liftList::(Monad m) => (a -> m a) -> ([a] -> m [a])
+liftList = mapM
+
+instance ASTModifiable [TopDef a] (Program a) where
+  modify f (Program a t) = Program a <$> f t
+
+instance ASTModifiable (TopDef a) (Program a) where
+  modify = modify . liftList
+
+instance ASTModifiable [Stmt a] (Program a) where
+  modify f = modify nf
+    where nf (FnDef a b c d (Block e bs)) = FnDef a b c d . Block e <$> f bs
+          nf x = return x
+
+instance ASTModifiable (Stmt a) (Program a) where
+  modify = modify . liftList
+
+modifyI::(ASTModifiable t r) => (t -> t) -> (r -> r)
+modifyI f = runIdentity . modify (Identity . f)

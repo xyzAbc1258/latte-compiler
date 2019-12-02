@@ -42,6 +42,7 @@ library
       TypeChecker.TypeChecker
       TypeChecker.TypeCheckUtils
       TypeChecker.TypeUtils
+      Compiler.BlockGenerator
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:

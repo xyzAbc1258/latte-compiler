@@ -12,7 +12,7 @@ import SkelLatte
 import PrintLatte
 import AbsLatte
 import TypeChecker.TypeChecker(checkTypes)
-
+import Compiler.BlockGenerator
 
 
 import ErrM
@@ -40,7 +40,7 @@ run v p s = let ts = myLLexer s in case p ts of
                           --print (fmap (const ()) tree)
                           case checkTypes tree of
                             Left s -> print s
-                            Right s -> putStrLn "Ok1" >>putStrLn  (printTree s)
+                            Right s -> putStrLn "Ok1" >>putStrLn  (printTree s) >> putStrLn (printTree $ toBlockStructure s)
                           exitSuccess
 
 

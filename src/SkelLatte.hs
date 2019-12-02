@@ -20,6 +20,7 @@ transTopDef x = case x of
   FnDef _ type_ ident args block -> failure x
   ClDef _ ident ext cldecls -> failure x
   Struct _ ident types -> failure x
+  VirtArray _ ident funcdecs -> failure x
 transArg :: Show a => Arg a -> Result
 transArg x = case x of
   Arg _ type_ ident -> failure x
@@ -31,6 +32,9 @@ transExt :: Show a => Ext a -> Result
 transExt x = case x of
   NoExt _ -> failure x
   ClassExt _ ident -> failure x
+transFuncDec :: Show a => FuncDec a -> Result
+transFuncDec x = case x of
+  FuncDecl _ type_ ident types -> failure x
 transBlock :: Show a => Block a -> Result
 transBlock x = case x of
   Block _ stmts -> failure x
@@ -38,6 +42,7 @@ transStmt :: Show a => Stmt a -> Result
 transStmt x = case x of
   Empty _ -> failure x
   BStmt _ block -> failure x
+  NamedBStmt _ ident block -> failure x
   Decl _ type_ items -> failure x
   Ass _ expr1 expr2 -> failure x
   Incr _ expr -> failure x
@@ -49,6 +54,8 @@ transStmt x = case x of
   While _ expr stmt -> failure x
   For _ type_ ident expr stmt -> failure x
   SExp _ expr -> failure x
+  CondJump _ expr ident1 ident2 -> failure x
+  Jump _ ident -> failure x
 transItem :: Show a => Item a -> Result
 transItem x = case x of
   NoInit _ ident -> failure x
@@ -59,24 +66,25 @@ transType x = case x of
   Str _ -> failure x
   Bool _ -> failure x
   Void _ -> failure x
-  Array _ type_ -> failure x
   Class _ ident -> failure x
+  Array _ type_ -> failure x
   Fun _ type_ types -> failure x
   Ptr _ type_ -> failure x
 transExpr :: Show a => Expr a -> Result
 transExpr x = case x of
+  EVersVar _ ident integer -> failure x
+  EPhi _ branchvs -> failure x
   EVar _ ident -> failure x
   ELitInt _ integer -> failure x
   ELitTrue _ -> failure x
   ELitFalse _ -> failure x
   EFldAcc _ expr ident -> failure x
   EArrAcc _ expr1 expr2 -> failure x
-  ENewObj _ type_ -> failure x
-  ENewArr _ type_ expr -> failure x
   EApp _ expr exprs -> failure x
   EString _ string -> failure x
-  ENull _ -> failure x
-  ECast _ type_ expr -> failure x
+  ENull _ type_ -> failure x
+  ENewObj _ type_ -> failure x
+  ENewArr _ type_ expr -> failure x
   Neg _ expr -> failure x
   Not _ expr -> failure x
   EMul _ expr1 mulop expr2 -> failure x
@@ -86,6 +94,9 @@ transExpr x = case x of
   EOr _ expr1 expr2 -> failure x
   EVirtCall _ expr integer exprs -> failure x
   EFldNoAcc _ expr integer -> failure x
+transBranchV :: Show a => BranchV a -> Result
+transBranchV x = case x of
+  BranchVar _ expr ident -> failure x
 transAddOp :: Show a => AddOp a -> Result
 transAddOp x = case x of
   Plus _ -> failure x

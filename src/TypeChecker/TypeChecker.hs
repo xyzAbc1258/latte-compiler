@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MonoLocalBinds #-}
 
 module TypeChecker.TypeChecker where
 
@@ -16,11 +18,14 @@ import Data.Maybe
 import Data.List
 import Common.Utils
 import Common.ASTUtils
+import Common.ASTModifier as ASTM
 import TypeChecker.TypeUtils
 import qualified Data.Map as M
 import qualified Common.Graphs as Gr
+import Control.Lens((&))
+import Data.Tuple(swap)
 
-checkTypes::Program a -> Either (String, StackEnv) (Program TCC.Type)
+checkTypes::Program a -> Either String (Program TCC.Type)
 checkTypes p = runExcept $ runReaderT (evalStateT (checkProgram p) 0)  baseStack
 
 checkProgram::Program a -> TypeChecker (Program TCC.Type)
@@ -36,11 +41,12 @@ checkProgram (Program _ defs) = do
     let classesMap = M.fromList [(n,c) | c@(ClDef _ (Ident n) _ _) <- classes]
     let orderClasses = map (classesMap M.!) $ fromJust $ Gr.sortTopologically inheritanceGraph
     let funcs = [f | f@FnDef{} <- defs]
-    afterClassDecl <- foldl (\a b -> a >>=(\s -> local (const s) b)) ask $ map declare orderClasses
+    let baseClassDecl = foldl (.) id [withClass n (createClassInfo n) |ClDef _ (Ident n) _ _ <- orderClasses]
+    afterClassDecl <- local baseClassDecl $ foldl (\a b -> a >>=(\s -> local (const s) b)) ask $ map declare orderClasses
     afterFuncDecl <- foldl (\a b -> a >>=(\s -> local (const s) b)) (return afterClassDecl) $ map declare funcs
     decls <- local (const afterFuncDecl) $ checkTopDef defs
-    throwError ("e", afterFuncDecl)
-    return $ Program None decls
+    --throwError ("e", afterFuncDecl)
+    return $ ASTM.modifyI removeBlocks $ Program None decls
 
 declare::TopDef a -> TypeChecker StackEnv
 declare f@(FnDef _ rType (Ident name) args _) = do
@@ -55,7 +61,7 @@ declare f@(FnDef _ rType (Ident name) args _) = do
 declare (ClDef _ (Ident name) ext members) = do
   exists <- existsClass name Global
   let sameNameAsPrim = name `elem` map show primitives
-  when (exists || sameNameAsPrim) $ mThrowError $ "Type " ++ name ++ " was already declared."
+  when sameNameAsPrim $ mThrowError $ "Type " ++ name ++ " was already declared."
   baseClass <- case ext of
     NoExt{} -> return $ createClassInfo name
     ClassExt _ (Ident bClass) -> do
@@ -82,12 +88,20 @@ checkTopDef (f@(FnDef _ rType (Ident name) args block): rest) = do
   (td ++) <$> checkTopDef rest
 
 
-checkTopDef (ClDef _ (Ident name) exts decls : rest) = do --TODO zrobić cldef
+checkTopDef (ClDef _ (Ident name) exts decls : rest) = do
   ci <- fromJust <$> getInScope Global (classI name)
   let fNameMap fName = _fMapping (_vtable ci) M.! (_fNameMapping (_vtable ci) M.! fName)
   let fndefs = [FnDef w r (Ident $ fNameMap n) (Arg w (AbsLatte.Class w (Ident name)) (Ident thisName): a) b | (ClFunc w r (Ident n) a b) <- decls]
+  let structTypes = _varNameMapping ci & M.toList & map swap & sortOn fst & map snd & map (_components ci M.!) & map mapTypeBack
+  let structDef = Struct TCC.None (Ident name) $ map (None <$) structTypes
+  let classVTable = _vtable ci
+  let fMapping = _fMapping classVTable
+  let comps = _components ci
+  let funcsDecls = classVTable & _fNameMapping & M.toList & sortOn snd & map (\s -> (fMapping M.! snd s,comps M.! fst s)) & map toFuncDelc
+  let vtable = VirtArray None (Ident ("virt_" ++ name)) $ map (None <$) funcsDecls
   r <- local (createEnvFromClassInfo ci :) $ checkTopDef fndefs
-  (r ++) <$> checkTopDef rest
+  ((structDef : vtable : r) ++) <$> checkTopDef rest
+  where toFuncDelc (name, TCC.Fun ret args) = FuncDecl () (mapTypeBack ret) (Ident name) (map mapTypeBack args)
 
 checkTopDef [] = do
   mainF <- getInScope Global $ functionI "main"
@@ -98,16 +112,21 @@ checkTopDef [] = do
   return []
 
 checkFnDef::TopDef a -> TypeChecker [TopDef TCC.Type]
+  --TODO refactor...
 checkFnDef (FnDef _ rType (Ident name) args block@(Block _ stmts)) = do
   let argTypes = [t | Arg _ t _ <- args]
   let allTypes = map mapType (rType : argTypes)
   unless (all (/= TCC.Void) (tail allTypes)) $ mThrowError "Function argument cannot have type void"
   let varNames = retVarName : [n | Arg _ _ (Ident n) <- args]
   unless (unique varNames) $ mThrowError "Argument names are not unique"
+  nArgs <- mapM (\(Arg a t _) -> Arg a t . Ident <$> newIdentifier) args
   let variablesModifier = foldl1 (.) $ zipWith withVariable varNames allTypes
+  let decls = [Decl None (None <$ t) [Init nt id (EVar nt nName)] |((Arg a t id, Arg _ _ nName), nt) <- zip (zip args nArgs) (tail allTypes) ]
   blockE <- local variablesModifier $ checkBlock block
-  unless (checkHasReturn (head allTypes == TCC.Void) stmts) $ mThrowError "There is a branch without return statement"
-  return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) args) blockE]
+  let (Block n s) = blockE
+  let nBlock = Block n (decls ++ s)
+  unless (checkHasReturn (head allTypes == TCC.Void) s) $ mThrowError "There is a branch without return statement"
+  return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) nArgs) nBlock]
 
 checkHasReturn::Bool -> [Stmt a] -> Bool
 checkHasReturn isVoid [] = isVoid
@@ -115,7 +134,7 @@ checkHasReturn isVoid (BStmt _ (Block _ b): r) = checkHasReturn isVoid (b ++ r)
 checkHasReturn _ (Ret{}:_) = True -- sprawdzanie typów jest gdzieś indziej
 checkHasReturn _ (VRet{} : _) = True
 checkHasReturn _ [Cond _ _ s] = False
-checkHasReturn isVoid [CondElse _ _ ifT ifF] = checkHasReturn isVoid [ifT] && checkHasReturn isVoid [ifF]
+checkHasReturn isVoid (CondElse _ _ ifT ifF :r) = (checkHasReturn isVoid [ifT] && checkHasReturn isVoid [ifF]) || checkHasReturn isVoid r
 checkHasReturn isVoid [While _ _ b] = checkHasReturn isVoid [b]
 checkHasReturn isVoid [For _ _ _ _ b] = checkHasReturn isVoid [b]
 checkHasReturn isVoid (_:r) = checkHasReturn isVoid r
@@ -131,7 +150,7 @@ checkStmts [] = return []
 
 checkStmts (Empty _ : t) = checkStmts t
 
-checkStmts (BStmt _ (Block _ [s@BStmt{}]) : t) = checkStmts (s:t)
+--checkStmts (BStmt _ (Block _ [s@BStmt{}]) : t) = checkStmts (s:t)
 checkStmts (BStmt _ b@Block{} : t) = (:) <$> (BStmt TCC.None <$> checkBlock b) <*> checkStmts t
 
 checkStmts (Decl _ typ items : t) = do
@@ -160,7 +179,7 @@ checkStmts (Ass _ lhs rhs : t) = do
 checkStmts (Incr _ expr : t) = do
   ex <-checkExpr expr
   expectsAllocType (LValue TCC.Int) (extract ex)
-  (Incr TCC.Int (fmap getType ex) :)  <$> checkStmts t
+  (Incr TCC.Int (fmap getType ex) :)  <$> checkStmts t --TODO zamienić na x = x+1 ?
 
 checkStmts (Decr _ expr : t) = do
   ex <-checkExpr expr
@@ -172,19 +191,24 @@ checkStmts (Ret _ expr : t) = do
   let retType = varType var
   exprType <- checkExpr expr
   expectsTypeAE retType exprType
-  (Ret retType (fmap getType exprType) :) <$> checkStmts t
+  checkStmts t
+  return [Ret retType (fmap getType exprType)]
 
 checkStmts (VRet _ : t) = do
   var <- fromJust <$> getInScope Global (varL retVarName)
   let retType = varType var
   unless (retType == TCC.Void) $ mThrowError "Wrong return type"
-  (VRet TCC.Void :) <$> checkStmts t
+  checkStmts t
+  return [VRet TCC.Void]
 
 checkStmts (Cond _ cond ifTrue : t) = do
   condExpr <- checkExpr cond
   expectsTypeAE TCC.Bool condExpr
   sTrueE <- checkStmts [ifTrue]
   case sTrueE of
+     [BStmt _ (Block _ s)] | isSimpleBoolExpr condExpr && fromBoolExpr condExpr -> (s ++) <$> checkStmts t
+     [sTrue] | isSimpleBoolExpr condExpr && fromBoolExpr condExpr -> (sTrue :) <$> checkStmts t
+     [sTrue] | isSimpleBoolExpr condExpr && not (fromBoolExpr condExpr) -> checkStmts t
      [sTrue] -> (Cond None (fmap getType condExpr) sTrue:) <$> checkStmts t
      _ -> mThrowError  "Error in typing if statement" -- Wewnętrzny błąd nie powinien nigdy wystąpić :)
 
@@ -193,16 +217,24 @@ checkStmts (CondElse _ cond ifTrue ifElse : t) = do
   expectsTypeAE TCC.Bool condExpr
   sTrueE <- checkStmts [ifTrue]
   sFalseE <- checkStmts [ifElse]
-  case (sTrueE, sFalseE) of
-    ([sTrue], [sFalse]) -> (CondElse None (fmap getType condExpr) sTrue sFalse:) <$> checkStmts t
+  res <- case (sTrueE, sFalseE) of
+    (s, _) | isTrueExpr condExpr -> return s
+    (_, s) | isFalseExpr condExpr -> return s
+    ([sTrue], [sFalse]) -> return [CondElse None (fmap getType condExpr) sTrue sFalse]
     _ -> mThrowError "Error in typing if/else statement" -- Wewnętrzny błąd nie powinien nigdy wystąpić :)
+  rstmts <- checkStmts t
+  if checkHasReturn False res then return res else return $ res ++ rstmts
 
 checkStmts (While _ cond block : t) = do
   condExpr <- checkExpr cond
   expectsTypeAE TCC.Bool condExpr
   sBlockE <- checkStmts [block]
+  rest <- checkStmts t
   case sBlockE of
-    [sBlock] -> (While None (fmap getType condExpr) sBlock :) <$> checkStmts t
+    [sBlock] | isFalseExpr condExpr -> return rest
+    [sBlock] | isTrueExpr condExpr && checkHasReturn False sBlockE -> return sBlockE
+    [sBlock] | isTrueExpr condExpr -> return [While None (fmap getType condExpr) sBlock]
+    [sBlock] -> return (While None (fmap getType condExpr) sBlock : rest)
     _ -> mThrowError "Internal error"
 
 checkStmts (For _ typ (Ident v) collection body : t) = do
@@ -211,7 +243,7 @@ checkStmts (For _ typ (Ident v) collection body : t) = do
   collExpr <- fmap getType <$> checkExpr collection
   expectsType (TCC.Array nt) $ extract collExpr
   bodyExpr <- case body of
-    BStmt _ (Block _ l) -> local (withVariable v nt . (emptyEnv :)) $ checkStmts l
+    BStmt _ (Block _ l) -> (: []) . BStmt None . Block None <$> local (withVariable v nt . (emptyEnv :)) (checkStmts l)
     l -> local (withVariable v nt . (emptyEnv :)) $ checkStmts [l]
   let [sb] = bodyExpr
   iteratorIdent <- newIdentifier
@@ -241,7 +273,7 @@ checkExpr (EVar _ (Ident x)) = do
                       cTypeI <- fromJust <$> getInScope Global (classI cName)
                       return $ EFldNoAcc (LValue t) (EVar (RValue cType) (Ident thisName)) (_varNameMapping cTypeI M.! x)
     LocalVar _ t -> do
-                      newName <- getInScope Local $ varMappingL x
+                      newName <- getInScope Global $ varMappingL x
                       let finalName = newName <|> Just x
                       return $ EVar (LValue t) (Ident (fromJust finalName))
 
@@ -258,11 +290,12 @@ checkExpr (EFldAcc _ obj fld@(Ident fldName)) = do
   objExpr <- checkExpr obj
   case getType (extract objExpr) of
     TCC.Array _ -> do unless (fldName == "length") $ mThrowError "Array doesnt have any other field than length"
-                      return $ EFldAcc (RValue TCC.Int) objExpr fld
+                      return $ EFldNoAcc (RValue TCC.Int) objExpr 0
     TCC.Class cname -> do cInfo <- fromJust <$> getInScope Global (classI cname)
                           let fldType = _components cInfo M.!? fldName
                           unless (isJust fldType) $ mThrowError $ "Class " ++ cname ++ " doesn't have member " ++ fldName
-                          return $ EFldAcc (LValue $ fromJust fldType) objExpr fld
+                          let fldNo = TCC._varNameMapping cInfo M.! fldName
+                          return $ EFldNoAcc (LValue $ fromJust fldType) objExpr fldNo
     t -> mThrowError $ "Type " ++ show t ++ " doesnt have any field!!!"
 
 
@@ -292,19 +325,24 @@ checkExpr (EApp _ (EVar _ (Ident fName)) args) = do
 
 
 
-checkExpr (EApp _ obj args) = do
+checkExpr (EApp _ (EFldAcc _ obj (Ident fName)) args) = do
   objExpr <- checkExpr obj
   case getType $ extract objExpr of
-    TCC.Fun rType tArgs -> do
-                          unless (length tArgs == length args) $ mThrowError "Wrong number of arguments"
-                          argsExpr <- mapM checkExpr args
-                          zipWithM_ expectsTypeAE tArgs argsExpr
-                          let retAllocType =case rType of
-                                               (TCC.Class _) -> RValue
-                                               (TCC.Array _) -> RValue
-                                               _ -> LValue
-                          return $ EApp (retAllocType rType) objExpr argsExpr --TODO EVirtCall
-    _ -> mThrowError "Cannot invoke sth which is not a function"
+    thisType@(TCC.Class cName) -> do --TODO refactor, powtórzenia z funkcją wyżej
+                        cInfo <- fromJust <$> getInScope Global (classI cName)
+                        let fNumber = _fNameMapping (_vtable cInfo) M.! fName
+                        let maybeFType = _components cInfo M.!? fName
+                        unless (isJust maybeFType && (isFunc (fromJust maybeFType))) $ mThrowError $ "Class " ++ cName ++ " doesn't have function " ++ fName
+                        let (TCC.Fun rType tArgs) = fromJust maybeFType
+                        unless (length tArgs == length args) $ mThrowError "Wrong number of arguments"
+                        argsExpr <- mapM checkExpr args
+                        zipWithM_ expectsTypeAE tArgs argsExpr
+                        let retAllocType =case rType of
+                                             (TCC.Class _) -> RValue
+                                             (TCC.Array _) -> RValue
+                                             _ -> LValue
+                        return $ EVirtCall (retAllocType rType) objExpr fNumber argsExpr
+    _ -> mThrowError "Cannot call function on object which is not a class"
 
 checkExpr (ENewArr _ aType length) = do
   lengthExpr <- checkExpr length
@@ -327,12 +365,12 @@ checkExpr (EString _ s) = return $ EString (RValue TCC.Str) s
 checkExpr (Neg _ a) = do
   inner <- checkExpr a
   expectsTypeAE TCC.Int inner
-  return $ Neg (RValue TCC.Int) inner
+  simplifyExpr $ Neg (RValue TCC.Int) inner
 
 checkExpr (Not _ a) = do
   inner <- checkExpr a
   expectsTypeAE TCC.Bool inner
-  return $ Not (RValue TCC.Bool) inner
+  simplifyExpr $ Not (RValue TCC.Bool) inner
 
 checkExpr (EMul _ op1 opr op2) = binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EMul t e1 (insertNoneType opr))
 
@@ -342,9 +380,9 @@ checkExpr(EAdd _  op1 p@(Plus _) op2) = do
   let t1 = getType $ extract e1
   let t2 = getType $ extract e2
   unless ((t1,t2) `elem` [(TCC.Int, TCC.Int), (TCC.Str, TCC.Str)]) $ mThrowError "Couldnt deduce operand types"
-  return $ EAdd (RValue t1) e1 (insertNoneType p) e2
+  simplifyExpr $ EAdd (RValue t1) e1 (insertNoneType p) e2
 
-checkExpr (EAdd _ op1 opr op2) = binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EAdd t e1 (insertNoneType opr))
+checkExpr (EAdd _ op1 opr@(Minus{}) op2) = binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EAdd t e1 (insertNoneType opr))
 
 checkExpr (ERel _ op1 opr@(EQU _) op2) = do
   e1 <- checkExpr op1
@@ -352,7 +390,7 @@ checkExpr (ERel _ op1 opr@(EQU _) op2) = do
   let t1 = getType $ extract e1
   let t2 = getType $ extract e2
   unless (t1 == t2) $ mThrowError "Equality operator expected objects of same type"
-  return $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
+  simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
 
 checkExpr (ERel _ op1 opr@(NE _) op2) = do
   e1 <- checkExpr op1
@@ -360,7 +398,7 @@ checkExpr (ERel _ op1 opr@(NE _) op2) = do
   let t1 = getType $ extract e1
   let t2 = getType $ extract e2
   unless (t1 == t2) $ mThrowError "Inequality operator expected objects of same type"
-  return $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
+  simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
 
 checkExpr (ERel _ op1 opr op2) = binOpCheck op1 op2 (TCC.Int, TCC.Int, TCC.Bool) (\t e1 -> ERel t e1 (insertNoneType opr))
 
@@ -368,25 +406,13 @@ checkExpr (EAnd _ op1 op2) = binOpCheckTrio op1 op2 TCC.Bool EAnd
 
 checkExpr (EOr _ op1 op2) = binOpCheckTrio op1 op2 TCC.Bool EOr
 
-checkExpr (ENull _) = return $ ENull (RValue None)
-
-checkExpr (ECast _ t (ENull _)) = do
+checkExpr (ENull _ t) = do
   let nt = mapType t
   case nt of
-    TCC.Str -> return  $ ECast (LValue TCC.Str) (insertNoneType t) (ENull (LValue TCC.Str))
-    c@TCC.Class{} -> return $ ECast (LValue c) (insertNoneType t) (ENull (LValue c))
-    c@TCC.Array{} -> return $ ECast (LValue c) (insertNoneType t) (ENull (LValue c))
+    TCC.Str -> return  $ ENull (LValue TCC.Str) (insertNoneType t)
+    c@TCC.Class{} -> return $ ENull (LValue c) (insertNoneType t)
+    c@TCC.Array{} -> return $ ENull (LValue c) (insertNoneType t)
     _ -> mThrowError "Null cannot be cast to primitive type"
-
-checkExpr (ECast _ t e) = do
-  ne <- checkExpr e
-  case ( getType (extract ne), mapType t) of
-    (t1, t2) | t1 == t2 -> return ne
-    (TCC.Class c1, c@(TCC.Class c2)) -> do
-                                     isCastOk <- isAssignableClass c2 c1
-                                     unless isCastOk $ mThrowError $ "Cannot cast type " ++ c1 ++ " to type " ++ c2
-                                     return $ ECast (RValue c) (insertNoneType t) ne
-    (t1,t2) -> mThrowError $ "Cannot cast type " ++ show t1 ++ " to type " ++ show t2
 
 type BinOpCreator = TCC.AllocType -> Expr TCC.AllocType -> Expr TCC.AllocType -> Expr TCC.AllocType
 
@@ -399,7 +425,34 @@ binOpCheck op1 op2 (t1, t2, r) cr = do
   e2 <- checkExpr op2
   expectsTypeAE t1 e1
   expectsTypeAE t2 e2
-  return $ cr (RValue r) e1 e2
+  simplifyExpr $ cr (RValue r) e1 e2
 
 binOpCheckTrio::Expr a -> Expr a -> TCC.Type -> BinOpCreator -> TypeChecker (Expr TCC.AllocType)
 binOpCheckTrio op1 op2 t = binOpCheck op1 op2 (t,t,t)
+
+simplifyExpr::(MonadRErrorC String m) => Expr a -> m (Expr a)
+simplifyExpr (Neg t (ELitInt _ v)) = return $ ELitInt t (-1*v)
+simplifyExpr (Not t b) | isSimpleBoolExpr b = return $ boolExpr t $ not $ fromBoolExpr b
+simplifyExpr (EAdd t (EString _ s1) Plus{} (EString _ s2)) = return $ EString t (s1 ++ s2)
+simplifyExpr (EAdd t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ ELitInt t $ op opr v1 v2
+simplifyExpr (EMul t ELitInt{} Div{} (ELitInt _ v)) | v == 0 = mThrowError "Cannot divide by zero"
+simplifyExpr (EMul t ELitInt{} Mod{} (ELitInt _ v)) | v == 0 = mThrowError "Cannot mod by zero"
+simplifyExpr (EMul t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ ELitInt t $ op opr v1 v2
+simplifyExpr (ERel t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ boolExpr t $ op opr v1 v2
+simplifyExpr (ERel t (EString _ s1) EQU{} (EString _ s2)) = return $ boolExpr t $ s1 == s2
+simplifyExpr (ERel t (EString _ s1) NE{} (EString _ s2)) = return $ boolExpr t $ s1 /= s2
+
+simplifyExpr (ERel t b1 EQU{} b2) | isSimpleBoolExpr b1 && isSimpleBoolExpr b2 =
+  let (v1,v2) = (fromBoolExpr b1, fromBoolExpr b2) in return $ boolExpr t $ v1 == v2
+
+simplifyExpr (ERel t b1 NE{} b2) | isSimpleBoolExpr b1 && isSimpleBoolExpr b2 =
+  let (v1,v2) = (fromBoolExpr b1, fromBoolExpr b2) in return $ boolExpr t $ v1 /= v2
+
+simplifyExpr (EAnd _ f@ELitFalse{} _) = return f
+simplifyExpr (EAnd _ ELitTrue{} v) = return v
+simplifyExpr (EOr _ t@ELitTrue{} _) = return t
+simplifyExpr (EOr _ ELitFalse{} v) = return v
+simplifyExpr (EAnd _ v ELitTrue{}) = return v
+simplifyExpr (EOr _ v ELitFalse{}) = return v
+
+simplifyExpr t = return $ t

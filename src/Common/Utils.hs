@@ -25,3 +25,14 @@ orElse m e = fromJust $ m <|> Just e
 
 liftEndo:: Lens' a b -> E b -> E a
 liftEndo l f x = set' l (f $ x ^. l) x
+
+splitOn::(a -> Bool) -> [a] -> [[a]]
+splitOn pred coll = _splitOn id coll []
+  where _splitOn f [] r = reverse $filter (not . null) $ f [] : r
+        _splitOn f (h:t) r = if pred h then _splitOn id t ([h] : f [] : r) else _splitOn (f . (h :)) t r
+        
+class Defaultable a where
+  getDefault :: a
+  
+instance Defaultable () where
+  getDefault = ()

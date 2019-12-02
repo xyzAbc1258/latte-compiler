@@ -4,3 +4,5 @@ out
 .idea
 *.exe
 bnfc-folder
+test
+!test/Spec.hs

@@ -15,17 +15,23 @@ import Control.Monad.Except
 import Control.Monad.State
 import Control.Lens
 import Control.Applicative((<|>), Alternative)
-import Common.Utils(E)
+import Common.Utils(E, Defaultable, getDefault)
 
 data Type = Int | Str | Bool | Void | Class String | Fun Type [Type] | Array Type | None deriving(Eq, Show)
 
+instance Defaultable Type where
+  getDefault = None
+
+isFunc::Type -> Bool
+isFunc (Fun{}) = True
+isFunc _ = False
 
 defaultValue::Type -> A.Expr ()
 defaultValue Int = A.ELitInt () 0
 defaultValue Str = A.EString () ""
 defaultValue Bool = A.ELitFalse ()
-defaultValue c@Class{} = A.ECast () (mapTypeBack c) (A.ENull ())
-defaultValue a@Array{} = A.ECast () (mapTypeBack a) (A.ENull ())
+defaultValue c@Class{} = A.ENull () (mapTypeBack c)
+defaultValue a@Array{} = A.ENull () (mapTypeBack a)
 
 mapType:: A.Type a -> Type
 mapType (A.Int _) = Int
@@ -125,17 +131,19 @@ type StackA a = [a]
 
 type StackEnv = StackA Env
 
-type TypeChecker = StateT Integer (ReaderT StackEnv (Except (String, StackEnv)))
+type TypeChecker = StateT Integer (ReaderT StackEnv (Except String))
 
-class MonadRErrorC e m where
+class (Monad m) => MonadRErrorC e m where
   mThrowError::e -> m a
   mCatchError::m a -> (e -> m a) -> m a
---instance(MonadError e m) => MonadRErrorC e m where
---  mThrowError = throwError
 
-instance(MonadReader r m, MonadError (e,r) m) => MonadRErrorC e m where
-  mThrowError msg = asks (msg,) >>= throwError
-  mCatchError m f = catchError m (\(e,r) -> catchError (f e) (\(ne,_) -> throwError (ne, r))) --TODO usunąć później
+instance(Monad m ,MonadError e m) => MonadRErrorC e m where
+  mThrowError = throwError
+  mCatchError = catchError
+  
+--instance(Monad m, MonadReader r m, MonadError (e,r) m) => MonadRErrorC e m where
+--  mThrowError msg = asks (msg,) >>= throwError
+--  mCatchError m f = catchError m (\(e,r) -> catchError (f e) (\(ne,_) -> throwError (ne, r))) --TODO usunąć później
 
 
 getValue::Alternative f => (a -> f b) -> StackA a -> f b

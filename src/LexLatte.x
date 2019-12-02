@@ -13,15 +13,15 @@ import Data.Char (ord)
 }
 
 
-$l = [a-zA-Z\192 - \255] # [\215 \247]    -- isolatin1 letter FIXME
-$c = [A-Z\192-\221] # [\215]    -- capital isolatin1 letter FIXME
-$s = [a-z\222-\255] # [\247]    -- small isolatin1 letter FIXME
-$d = [0-9]                -- digit
-$i = [$l $d _ ']          -- identifier character
-$u = [\0-\255]          -- universal: any character
+$c = [A-Z\192-\221] # [\215]  -- capital isolatin1 letter (215 = \times) FIXME
+$s = [a-z\222-\255] # [\247]  -- small   isolatin1 letter (247 = \div  ) FIXME
+$l = [$c $s]         -- letter
+$d = [0-9]           -- digit
+$i = [$l $d _ ']     -- identifier character
+$u = [. \n]          -- universal: any character
 
 @rsyms =    -- symbols and non-identifier-like reserved words
-   \( | \) | \, | \{ | \} | \; | \= | \+ \+ | \- \- | \: | \[ | \] | \. | \- | \! | \& \& | \| \| | \+ | \* | \/ | \% | \< | \< \= | \> | \> \= | \= \= | \! \=
+   \( | \) | \, | \{ | \} | \; | \= | \+ \+ | \- \- | \: | \[ \] | \. | \[ | \] | \) "null" | \- | \! | \& \& | \| \| | \+ | \* | \/ | \% | \< | \< \= | \> | \> \= | \= \= | \! \=
 
 :-
 "#" [.]* ; -- Toss single line comments
@@ -29,12 +29,16 @@ $u = [\0-\255]          -- universal: any character
 "/*" ([$u # \*] | \*+ [$u # [\* \/]])* ("*")+ "/" ;
 
 $white+ ;
-@rsyms { tok (\p s -> PT p (eitherResIdent (TV . share) s)) }
+@rsyms
+    { tok (\p s -> PT p (eitherResIdent (TV . share) s)) }
 
-$l $i*   { tok (\p s -> PT p (eitherResIdent (TV . share) s)) }
-\" ([$u # [\" \\ \n]] | (\\ (\" | \\ | \' | n | t)))* \"{ tok (\p s -> PT p (TL $ share $ unescapeInitTail s)) }
+$l $i*
+    { tok (\p s -> PT p (eitherResIdent (TV . share) s)) }
+\" ([$u # [\" \\ \n]] | (\\ (\" | \\ | \' | n | t | r | f)))* \"
+    { tok (\p s -> PT p (TL $ share $ unescapeInitTail s)) }
 
-$d+      { tok (\p s -> PT p (TI $ share s))    }
+$d+
+    { tok (\p s -> PT p (TI $ share s))    }
 
 
 {
@@ -102,7 +106,7 @@ eitherResIdent tv s = treeFind resWords
                               | s == a = t
 
 resWords :: BTree
-resWords = b ">=" 22 (b "-" 11 (b ")" 6 (b "%" 3 (b "!=" 2 (b "!" 1 N N) N) (b "(" 5 (b "&&" 4 N N) N)) (b "++" 9 (b "+" 8 (b "*" 7 N N) N) (b "," 10 N N))) (b "<" 17 (b "/" 14 (b "." 13 (b "--" 12 N N) N) (b ";" 16 (b ":" 15 N N) N)) (b "==" 20 (b "=" 19 (b "<=" 18 N N) N) (b ">" 21 N N)))) (b "new" 33 (b "extends" 28 (b "boolean" 25 (b "]" 24 (b "[" 23 N N) N) (b "else" 27 (b "class" 26 N N) N)) (b "if" 31 (b "for" 30 (b "false" 29 N N) N) (b "int" 32 N N))) (b "void" 38 (b "string" 36 (b "return" 35 (b "null" 34 N N) N) (b "true" 37 N N)) (b "||" 41 (b "{" 40 (b "while" 39 N N) N) (b "}" 42 N N))))
+resWords = b ">" 22 (b "," 11 (b ")" 6 (b "%" 3 (b "!=" 2 (b "!" 1 N N) N) (b "(" 5 (b "&&" 4 N N) N)) (b "+" 9 (b "*" 8 (b ")null" 7 N N) N) (b "++" 10 N N))) (b ";" 17 (b "." 14 (b "--" 13 (b "-" 12 N N) N) (b ":" 16 (b "/" 15 N N) N)) (b "=" 20 (b "<=" 19 (b "<" 18 N N) N) (b "==" 21 N N)))) (b "if" 33 (b "class" 28 (b "[]" 25 (b "[" 24 (b ">=" 23 N N) N) (b "boolean" 27 (b "]" 26 N N) N)) (b "false" 31 (b "extends" 30 (b "else" 29 N N) N) (b "for" 32 N N))) (b "void" 39 (b "return" 36 (b "new" 35 (b "int" 34 N N) N) (b "true" 38 (b "string" 37 N N) N)) (b "||" 42 (b "{" 41 (b "while" 40 N N) N) (b "}" 43 N N))))
    where b s n = let bs = id s
                   in B bs (TS bs n)
 
@@ -112,6 +116,8 @@ unescapeInitTail = id . unesc . tail . id where
     '\\':c:cs | elem c ['\"', '\\', '\''] -> c : unesc cs
     '\\':'n':cs  -> '\n' : unesc cs
     '\\':'t':cs  -> '\t' : unesc cs
+    '\\':'r':cs  -> '\r' : unesc cs
+    '\\':'f':cs  -> '\f' : unesc cs
     '"':[]    -> []
     c:cs      -> c : unesc cs
     _         -> []
