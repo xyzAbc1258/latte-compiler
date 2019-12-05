@@ -23,11 +23,12 @@ controls CondElse {} = True
 controls While {} = True
 controls _ = False
 
+lastLabel = Ident "last"
+
 splitStmtsToBlocksA::(Defaultable a) =>[Stmt a] -> LabelGen [Stmt a]
 splitStmtsToBlocksA s = do
   let first = Ident "entry"
-  let last = Ident "last"
-  splitStmtsToBlocks first s last
+  splitStmtsToBlocks first s lastLabel
 
 splitStmtsToBlocks::(Defaultable a) =>Ident -> [Stmt a] -> Ident -> LabelGen [Stmt a]
 splitStmtsToBlocks current s next = do
@@ -83,6 +84,8 @@ processBlock current b next = do
   let s = case lastStmt of
               VRet{} -> NamedBStmt v current (Block v b)
               Ret{} -> NamedBStmt v current (Block v b)
+              -- na końcy bloku gdy nie ma "sensownego" następnika, robimy return
+              s | next == lastLabel -> NamedBStmt v current (Block v $ b ++ [AbsLatte.VRet v])  
               s -> NamedBStmt v current (Block v $ b ++ [AbsLatte.Jump v next])
   return [s]
 

@@ -16,6 +16,7 @@ import Compiler.BlockGenerator
 
 
 import ErrM
+import Compiler.ILTranformer
 
 type ParseFun a = [Token] -> Err a
 
@@ -40,7 +41,14 @@ run v p s = let ts = myLLexer s in case p ts of
                           --print (fmap (const ()) tree)
                           case checkTypes tree of
                             Left s -> print s
-                            Right s -> putStrLn "Ok1" >>putStrLn  (printTree s) >> putStrLn (printTree $ toBlockStructure s)
+                            Right s -> do
+                                        putStrLn "Ok1"
+                                        putStrLn  (printTree s)
+                                        putStrLn "Blocks:"
+                                        let blocks = toBlockStructure s
+                                        putStrLn (printTree blocks)
+                                        putStrLn "LLVM"
+                                        putStrLn $ toString blocks
                           exitSuccess
 
 

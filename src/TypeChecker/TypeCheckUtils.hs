@@ -19,6 +19,14 @@ import Common.Utils(E, Defaultable, getDefault)
 
 data Type = Int | Str | Bool | Void | Class String | Fun Type [Type] | Array Type | None deriving(Eq, Show)
 
+isClass::Type -> Bool
+isClass Class{} = True
+isClass _ = False
+
+isArray::Type -> Bool
+isArray Array{} = True
+isArray _ = False
+
 instance Defaultable Type where
   getDefault = None
 

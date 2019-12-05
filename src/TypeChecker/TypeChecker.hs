@@ -24,6 +24,7 @@ import qualified Data.Map as M
 import qualified Common.Graphs as Gr
 import Control.Lens((&))
 import Data.Tuple(swap)
+import TypeChecker.ExprSimplification(simplifyExpr)
 
 checkTypes::Program a -> Either String (Program TCC.Type)
 checkTypes p = runExcept $ runReaderT (evalStateT (checkProgram p) 0)  baseStack
@@ -101,7 +102,7 @@ checkTopDef (ClDef _ (Ident name) exts decls : rest) = do
   let vtable = VirtArray None (Ident ("virt_" ++ name)) $ map (None <$) funcsDecls
   r <- local (createEnvFromClassInfo ci :) $ checkTopDef fndefs
   ((structDef : vtable : r) ++) <$> checkTopDef rest
-  where toFuncDelc (name, TCC.Fun ret args) = FuncDecl () (mapTypeBack ret) (Ident name) (map mapTypeBack args)
+  where toFuncDelc (fname, TCC.Fun ret args) = FuncDecl () (mapTypeBack ret) (Ident fname) (map mapTypeBack (TCC.Class name : args))
 
 checkTopDef [] = do
   mainF <- getInScope Global $ functionI "main"
@@ -430,29 +431,3 @@ binOpCheck op1 op2 (t1, t2, r) cr = do
 binOpCheckTrio::Expr a -> Expr a -> TCC.Type -> BinOpCreator -> TypeChecker (Expr TCC.AllocType)
 binOpCheckTrio op1 op2 t = binOpCheck op1 op2 (t,t,t)
 
-simplifyExpr::(MonadRErrorC String m) => Expr a -> m (Expr a)
-simplifyExpr (Neg t (ELitInt _ v)) = return $ ELitInt t (-1*v)
-simplifyExpr (Not t b) | isSimpleBoolExpr b = return $ boolExpr t $ not $ fromBoolExpr b
-simplifyExpr (EAdd t (EString _ s1) Plus{} (EString _ s2)) = return $ EString t (s1 ++ s2)
-simplifyExpr (EAdd t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ ELitInt t $ op opr v1 v2
-simplifyExpr (EMul t ELitInt{} Div{} (ELitInt _ v)) | v == 0 = mThrowError "Cannot divide by zero"
-simplifyExpr (EMul t ELitInt{} Mod{} (ELitInt _ v)) | v == 0 = mThrowError "Cannot mod by zero"
-simplifyExpr (EMul t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ ELitInt t $ op opr v1 v2
-simplifyExpr (ERel t (ELitInt _ v1) opr (ELitInt _ v2)) = return $ boolExpr t $ op opr v1 v2
-simplifyExpr (ERel t (EString _ s1) EQU{} (EString _ s2)) = return $ boolExpr t $ s1 == s2
-simplifyExpr (ERel t (EString _ s1) NE{} (EString _ s2)) = return $ boolExpr t $ s1 /= s2
-
-simplifyExpr (ERel t b1 EQU{} b2) | isSimpleBoolExpr b1 && isSimpleBoolExpr b2 =
-  let (v1,v2) = (fromBoolExpr b1, fromBoolExpr b2) in return $ boolExpr t $ v1 == v2
-
-simplifyExpr (ERel t b1 NE{} b2) | isSimpleBoolExpr b1 && isSimpleBoolExpr b2 =
-  let (v1,v2) = (fromBoolExpr b1, fromBoolExpr b2) in return $ boolExpr t $ v1 /= v2
-
-simplifyExpr (EAnd _ f@ELitFalse{} _) = return f
-simplifyExpr (EAnd _ ELitTrue{} v) = return v
-simplifyExpr (EOr _ t@ELitTrue{} _) = return t
-simplifyExpr (EOr _ ELitFalse{} v) = return v
-simplifyExpr (EAnd _ v ELitTrue{}) = return v
-simplifyExpr (EOr _ v ELitFalse{}) = return v
-
-simplifyExpr t = return $ t

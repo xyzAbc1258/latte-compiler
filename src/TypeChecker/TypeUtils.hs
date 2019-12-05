@@ -5,7 +5,7 @@ module TypeChecker.TypeUtils(
 ) where
 
 import TypeChecker.TypeCheckUtils
-import Control.Monad.Reader (MonadReader)
+import Control.Monad.Reader
 import qualified Data.Map as M
 import qualified AbsLatte as A
 import Common.ASTUtils

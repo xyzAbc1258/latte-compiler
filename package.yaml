@@ -25,6 +25,7 @@ dependencies:
 - array
 - containers
 - lens
+- ghc >= 8.6.5
 
 library:
   source-dirs: src
@@ -36,6 +37,7 @@ executables:
     ghc-options:
     - -threaded
     - -rtsopts
+    - -package ghc-8.6.5
     dependencies:
     - latte-compiler
 

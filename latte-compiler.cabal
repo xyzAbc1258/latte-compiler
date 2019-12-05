@@ -42,7 +42,13 @@ library
       TypeChecker.TypeChecker
       TypeChecker.TypeCheckUtils
       TypeChecker.TypeUtils
+      TypeChecker.ExprSimplification
       Compiler.BlockGenerator
+      Compiler.ILTranformer
+      Compiler.ILBlockTransformer
+      Compiler.ILStmtTransformer
+      Compiler.ILExprTransformer
+      Compiler.ILTransformerCommon
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
@@ -53,6 +59,7 @@ library
     , containers
     , lens
     , mtl
+    , ghc == 8.6.5
   default-language: Haskell2010
 
 executable latte-compiler-exe
@@ -61,7 +68,7 @@ executable latte-compiler-exe
       Paths_latte_compiler
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts
+  ghc-options: -threaded -rtsopts -package ghc-8.6.5
   build-depends:
       array
     , base >=4.7 && <5
