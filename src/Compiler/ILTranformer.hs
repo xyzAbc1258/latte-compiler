@@ -33,7 +33,7 @@ transformProgram (Program a topdefs) = do
  mapM_ declareFunc [f | f@FnDef{} <- topdefs]
  funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
  ss <- M.toList . fst <$> get
- let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (text,v@LMGlobalVar{}) <- ss, getLink v == Private]
+ let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private]
  return $ LlvmModule {
   modComments = [],
   modAliases = aliases,

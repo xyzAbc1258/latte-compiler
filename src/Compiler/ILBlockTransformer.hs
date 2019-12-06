@@ -29,4 +29,8 @@ transformBlock A.Empty{} = return $ LlvmBlock {
                                }
 
 
-transformBlock b = error $ "Incorrect block! " ++ show b
+transformBlock A.VRet {} = return $ LlvmBlock {
+                                       blockLabel = getUnique $ mkfs "entry",
+                                       blockStmts = [Return Nothing]
+                                 }
+transformBlock t = error $ "Incorrect block " ++ show t

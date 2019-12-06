@@ -43,14 +43,15 @@ getVar n = gets ((M.! n) . fst)
 
 createConstString::String -> Translator LlvmVar
 createConstString s = do
-  v <- gets ((M.!? s) . fst)
+  let ns = "#str_" ++ s
+  v <- gets ((M.!? ns) . fst)
   case v of
     Just v -> return v
     Nothing -> do
                   c <- gets snd
                   modify (over _2 ( + 1))
                   let nVar = LMGlobalVar (mkfs $ "_cstr_" ++ show c) (LMArray (length s +1) i8) Private Nothing Nothing Constant
-                  addVar s nVar
+                  addVar ns nVar
                   return nVar
 
 newVar::LlvmType -> Translator LlvmVar

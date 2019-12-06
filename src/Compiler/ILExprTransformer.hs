@@ -43,7 +43,10 @@ transformRExpr (ERel t v1 EQU{} v2) = transformBinaryCmp t v1 v2 LM_CMP_Eq
 transformRExpr (ERel t v1 NE{} v2) = transformBinaryCmp t v1 v2 LM_CMP_Ne 
 
 transformRExpr (Neg t v1) = transformRExpr (EMul t (ELitInt t (-1)) (Times t) v1)
-transformRExpr (Not t v1) = transformRExpr (EAdd t (ELitInt t 1) (Minus t) v1)
+transformRExpr (Not t v1) = do
+  (s,v) <- transformRExpr v1
+  nv <- newVar i1
+  return (s ++ [Assignment nv (LlvmOp LM_MO_Sub (LMLitVar (LMIntLit 1 i1)) v)], nv)
 
 transformRExpr (EVar t (Ident name)) = do
   v <- getVar name
