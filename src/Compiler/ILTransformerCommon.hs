@@ -41,6 +41,18 @@ addVar n v = modify (over _1 (M.insert n v))
 getVar::String -> Translator LlvmVar
 getVar n = gets ((M.! n) . fst)
 
+createConstString::String -> Translator LlvmVar
+createConstString s = do
+  v <- gets ((M.!? s) . fst)
+  case v of
+    Just v -> return v
+    Nothing -> do
+                  c <- gets snd
+                  modify (over _2 ( + 1))
+                  let nVar = LMGlobalVar (mkfs $ "_cstr_" ++ show c) (LMArray (length s +1) i8) Private Nothing Nothing Constant
+                  addVar s nVar
+                  return nVar
+
 newVar::LlvmType -> Translator LlvmVar
 newVar t = do
   c <- gets snd
@@ -48,3 +60,32 @@ newVar t = do
   return $ LMNLocalVar (mkfs $ "var" ++  show c) t
 
 
+
+malloc::LlvmVar
+malloc = LMGlobalVar (mkfs "malloc") (LMFunction LlvmFunctionDecl{
+  decName = mkfs "malloc",
+  funcLinkage = External,
+  funcCc = CC_Fastcc,
+  decReturnType = i8Ptr,
+  decVarargs = FixedArgs,
+  decParams = [(i64,[])],
+  funcAlign = Nothing
+}) Internal Nothing Nothing Constant
+
+
+memset::LlvmVar
+memset = LMGlobalVar (mkfs "llvm.memset.p0i8.i64") (LMFunction LlvmFunctionDecl{
+  decName = mkfs "llvm.memset.p0i8.i64",
+  funcLinkage = External,
+  funcCc = CC_Fastcc,
+  decReturnType = Llvm.LMVoid,
+  decVarargs = FixedArgs,
+  decParams = [(i8Ptr,[]),(i8,[]),(i64,[]),(i32,[]),(i1,[])],
+  funcAlign = Nothing
+}) Internal Nothing Nothing Constant
+
+litNum::Integer -> LlvmType -> LlvmVar
+litNum v t = LMLitVar (LMIntLit v t)
+
+callMemset::LlvmVar -> LlvmVar -> LlvmStatement
+callMemset ptr size = Llvm.Expr (Call StdCall memset [ptr, litNum 0 i8, size, litNum 1 i32, litNum 0 i1] [])

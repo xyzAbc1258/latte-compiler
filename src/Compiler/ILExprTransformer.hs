@@ -9,6 +9,9 @@ import Control.Monad
 import Unique (getUnique)
 import Common.ASTUtils (extract)
 
+number64::Integer -> LlvmVar
+number64 a = LMLitVar (LMIntLit a i64)
+
 transformRExpr:: Expr TCU.Type -> Translator ([LlvmStatement], LlvmVar)
 
 transformRExpr (ELitInt _ v) = return ([], LMLitVar $ LMIntLit v i32)
@@ -16,9 +19,12 @@ transformRExpr (ELitInt _ v) = return ([], LMLitVar $ LMIntLit v i32)
 transformRExpr ELitTrue{} = return ([], LMLitVar $ LMIntLit 1 i1)
 transformRExpr ELitFalse{} = return ([], LMLitVar $ LMIntLit 0 i1)
 
-transformRExpr (EString _ v) = return ([], LMLitVar $ LMNullLit i8Ptr)
+transformRExpr (EString _ v) = do
+  v <- createConstString v
+  ptr <- newVar i8Ptr
+  return ([Assignment ptr (GetElemPtr True (pVarLift v) [number 0, number 0])], ptr)
 
-transformRExpr (ENull t _) = return ([], LMLitVar $ LMNullLit $ mapTypes t)
+transformRExpr (ENull t _) = return ([], LMLitVar $ LMNullLit $ valTType t)
 
 transformRExpr (EAnd t v1 v2) = transformBinaryOp t v1 v2 LM_MO_And
 transformRExpr (EOr t v1 v2) = transformBinaryOp t v1 v2 LM_MO_Or
@@ -65,10 +71,17 @@ transformRExpr (ENewObj t@(TCU.Class name) _) = do
   nVar <- newVar pt
   virtPtr <- newVar $ LMPointer $ LMPointer $ i8Ptr
   virtArr <- getVar $ "virt_" ++ name
+  sizeCalcPtr <- newVar pt
+  sizeCalcOne <- newVar i64
+  tmp1 <- newVar i8Ptr
   let virtArrCheat = pVarLift virtArr
   virtArrToBytePtr <- newVar (LMPointer i8Ptr)
   return ([
-            Assignment nVar (Alloca nt 1),
+            Assignment sizeCalcPtr (GetElemPtr False (LMLitVar (LMNullLit pt)) [number 1]),
+            Assignment sizeCalcOne (Cast LM_Ptrtoint sizeCalcPtr i64),
+            Assignment tmp1 (Call StdCall malloc [sizeCalcOne] []),
+            callMemset tmp1 sizeCalcOne,
+            Assignment nVar (Cast LM_Bitcast tmp1 pt),
             Assignment virtPtr (GetElemPtr True nVar [number 0, number 0]),
             Assignment virtArrToBytePtr (Cast LM_Bitcast virtArrCheat (LMPointer i8Ptr)),
             Store virtArrToBytePtr virtPtr
@@ -101,7 +114,7 @@ transformRExpr e@(EVirtCall rt obj num args) = do
                 Assignment fPtrAddr (GetElemPtr True vTablePtr [number num]),
                 Assignment fPtr (Load fPtrAddr),
                 Assignment fF (Cast LM_Bitcast fPtr (LMPointer fType)),
-                Assignment val (Call StdCall fF (objPtr: argsV) [])
+                (if rt /= TCU.Void then Assignment val else Llvm.Expr) (Call StdCall fF (objPtr: argsV) [])
               ]
   return ((argsss >>= id) ++ s1 ++ stmts, val)
 
@@ -110,8 +123,10 @@ transformRExpr (EApp r (EVar _ (Ident fName)) args) = do
   (argss, vs) <- mapAndUnzipM transformRExpr args
   fVar <- getVar fName
   nValue <- newVar $ mapTypes r
-  let ass = Assignment nValue (Call StdCall fVar vs [])
+  let ass = (if r == TCU.Void then Llvm.Expr else Assignment nValue) (Call StdCall fVar vs [])
   return ((argss >>= id) ++ [ass], nValue)
+
+transformRExpr e = error $ "Not supported " ++ show e
 
 number::Integer -> LlvmVar
 number n = LMLitVar (LMIntLit n i32)
@@ -150,11 +165,28 @@ transformLExpr (ENewArr _ t size) = do (s1, n1) <- transformRExpr size
                                        let zero = number 0
                                        contentPtr <- newVar (LMPointer $ LMPointer elemType)
                                        val <- newVar structType
+                                       sizeCalcPtr <- newVar (LMPointer elemType)
+                                       sizeCalcOne <- newVar i64
+                                       allSize <- newVar i64
+                                       tmp1 <- newVar i8Ptr
+                                       tmp2 <- newVar i8Ptr
+                                       --structSize <- newVar i64 --TODO 12 lub 8 ??
+                                       -- %Size = getelementptr %T* null, i32 1
+                                       -- %SizeI = ptrtoint %T* %Size to i32
+                                       -- TODO malloc
                                        let stmts
-                                             = [Assignment arrPtr (Alloca structType 1),
+                                             = [Assignment sizeCalcPtr (GetElemPtr False (LMLitVar (LMNullLit (LMPointer elemType))) [number 1]),
+                                                Assignment sizeCalcOne (Cast LM_Ptrtoint sizeCalcPtr i64),
+                                                Assignment allSize (LlvmOp LM_MO_Mul sizeCalcOne n1),
+                                                --Assignment structSize (LlvmOp LM_MO_Add  )
+                                                Assignment tmp1 (Call StdCall malloc [number64 8] []),
+                                                callMemset tmp1 (number64 8),
+                                                Assignment arrPtr (Cast LM_Bitcast tmp1 (LMPointer structType)),
                                                 Assignment sizePtr (GetElemPtr True arrPtr [zero, zero]),
                                                 Store n1 sizePtr,
-                                                Assignment tmpContPtr (Alloca elemType 1),
+                                                Assignment tmp2 (Call StdCall malloc [allSize] []),
+                                                callMemset tmp2 allSize,
+                                                Assignment tmpContPtr (Cast LM_Bitcast tmp2 (LMPointer structType)),
                                                 Assignment contentPtr (GetElemPtr True arrPtr [zero, number 1]),
                                                 Store tmpContPtr contentPtr]
                                        return (s1 ++ stmts, arrPtr)

@@ -69,18 +69,19 @@ data FunctionInfo = FunctionInfo String Type [Type] | InstanceFunc String Type [
 
 data VTable = VTable {
   _fNameMapping :: M.Map String Integer,
-  _fMapping :: M.Map Integer String
+  _fMapping :: M.Map Integer (String, String)
 } deriving (Show)
 
 emptyVTable::VTable
 emptyVTable = VTable {_fNameMapping = M.empty, _fMapping = M.empty}
 
 addMapping::String->String-> E VTable
-addMapping fName fWithClassName vtable =
-  let currentfNameMapping = _fNameMapping vtable
-    in let newFNameMapping = M.alter (\ s -> s <|> (Just $ fromIntegral (M.size currentfNameMapping))) fName currentfNameMapping
-      in let newFMapping = M.insert (newFNameMapping M.! fName) fWithClassName $ _fMapping vtable
-        in VTable {_fNameMapping = newFNameMapping, _fMapping = newFMapping}
+addMapping fName cName vtable =
+  let fWithClassName = cName ++ "_" ++ fName
+    in let currentfNameMapping = _fNameMapping vtable
+      in let newFNameMapping = M.alter (\ s -> s <|> (Just $ fromIntegral (M.size currentfNameMapping))) fName currentfNameMapping
+        in let newFMapping = M.insert (newFNameMapping M.! fName) (fWithClassName, cName) $ _fMapping vtable
+          in VTable {_fNameMapping = newFNameMapping, _fMapping = newFMapping}
 
 data ClassInfo = ClassInfo {
   _name :: String,
@@ -107,7 +108,7 @@ addVariable name vType classInfo = let currComponents = _components classInfo
 
 addFunction::String -> Type -> E ClassInfo
 addFunction name fType@Fun{} classInfo = let cName = _name classInfo
-                                    in let nVTable = addMapping name (cName ++ "_" ++ name) $ _vtable classInfo
+                                    in let nVTable = addMapping name cName $ _vtable classInfo
                                      in let currComponents = _components classInfo
                                       in classInfo {_vtable = nVTable, _components = M.insert name fType currComponents}
 

@@ -5,7 +5,7 @@ import Llvm
 import AbsLatte as A
 import TypeChecker.TypeCheckUtils as TCU
 import FastString (mkFastString)
-import Outputable (showSDocUnsafe)
+import Outputable (showSDocUnsafe, SDoc)
 import Control.Monad.State
 import qualified Data.Map as M
 import Unique (getUnique)
@@ -14,12 +14,14 @@ import Common.ASTUtils
 import qualified TypeChecker.TypeCheckCommon as TCC
 import Compiler.ILTransformerCommon
 import Compiler.ILBlockTransformer
-
-
+import Data.Char (showLitChar)
+import Common.Utils
 
 toString:: Program TCU.Type -> String
 toString = showSDocUnsafe .  ppLlvmModule . (`evalState` (M.empty,0)) . transformProgram
 
+toDoc:: Program TCU.Type -> SDoc
+toDoc = ppLlvmModule . (`evalState` (M.empty,0)) . transformProgram
 
 transformProgram::Program TCU.Type -> Translator LlvmModule
 transformProgram (Program a topdefs) = do
@@ -30,19 +32,20 @@ transformProgram (Program a topdefs) = do
  varrays <- mapM transformVirtArray [v | v@VirtArray{} <- topdefs]
  mapM_ declareFunc [f | f@FnDef{} <- topdefs]
  funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
-
+ ss <- M.toList . fst <$> get
+ let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (text,v@LMGlobalVar{}) <- ss, getLink v == Private]
  return $ LlvmModule {
   modComments = [],
   modAliases = aliases,
   modMeta = [],
-  modGlobals = varrays,
+  modGlobals = varrays ++ sConsts,
   modFwdDecls = [],
   modFuncs = funcs
 }
 
 
 transformAlias::TopDef TCU.Type -> LlvmAlias
-transformAlias (Struct _ (Ident name) types) = (mkFastString name, LMStructU $ (LMPointer i8Ptr :) $ map map2Type types)
+transformAlias (Struct _ (Ident name) types) = (mkFastString name, LMStructU $ (LMPointer i8Ptr :) $ map valType types)
 
 declareFunc::TopDef TCU.Type -> Translator ()
 declareFunc (FnDef _ rt (Ident fName) args body) = do
@@ -59,8 +62,6 @@ declareFunc (FnDef _ rt (Ident fName) args body) = do
                               Nothing
                               Constant
   addVar fName var
-
-
 
 transformVirtArray::TopDef TCU.Type -> Translator LMGlobal
 transformVirtArray (VirtArray _ (Ident name) funcDecls) = do

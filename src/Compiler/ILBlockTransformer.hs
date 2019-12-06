@@ -8,12 +8,16 @@ import Compiler.ILStmtTransformer
 import Unique (getUnique)
 
 transformBody::[Stmt TCU.Type] -> Translator LlvmBlocks
-transformBody = mapM transformBlock
+transformBody s = do
+  let labels = [(n, LMLocalVar (getUnique $ mkfs n) LMLabel) | NamedBStmt _ (Ident n) _ <- s ]
+  mapM_ (uncurry addVar) labels
+  mapM transformBlock s
 
 transformBlock::Stmt TCU.Type -> Translator LlvmBlock
 transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
+    vLabel <- getVar name
+    let (LMLocalVar label _) = vLabel
     lmStmts <- mapM transformStmt stmts
-    let label = getUnique $ mkfs name
     return $ LlvmBlock {
       blockLabel = label,
       blockStmts = join lmStmts

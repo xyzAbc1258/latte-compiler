@@ -62,5 +62,9 @@
     <orderEntry type="library" name="hpc-0.6.0.3" level="project" />
     <orderEntry type="library" name="process-1.6.5.0" level="project" />
     <orderEntry type="library" name="time-1.8.0.2" level="project" />
+    <orderEntry type="library" name="split-0.2.3.3" level="project" />
+    <orderEntry type="library" name="raw-strings-qq-1.1" level="project" />
+    <orderEntry type="library" name="splice-0.6.1.1" level="project" />
+    <orderEntry type="library" name="network-2.8.0.1" level="project" />
   </component>
 </module>

@@ -9,6 +9,11 @@ import Control.Monad.State
 import Data.Maybe
 import Control.Applicative
 
+import Data.List (intercalate)
+import Data.List.Split as Ls
+
+
+replace from to = intercalate to . Ls.splitOn from
 
 type E a = a -> a
 

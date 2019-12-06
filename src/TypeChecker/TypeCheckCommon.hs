@@ -24,6 +24,8 @@ import Common.ASTUtils (extract)
 
 $(makeLenses ''Env)
 
+concatStrFunc = "__concatStrings"
+cmpStrFunc = "__cmpStrings"
 
 baseStack::StackEnv
 baseStack = [
@@ -33,7 +35,9 @@ baseStack = [
                       ("printString", FunctionInfo "printString" Void [Str]),
                       ("error", FunctionInfo "error" Void []),
                       ("readInt", FunctionInfo "readInt" Int []),
-                      ("readString", FunctionInfo "readString" Str [])
+                      ("readString", FunctionInfo "readString" Str []),
+                      (concatStrFunc, FunctionInfo concatStrFunc Str [Str, Str]),
+                      (cmpStrFunc, FunctionInfo cmpStrFunc Bool [Str, Str])
                   ],
     _classInfos = M.empty,
     _variables = M.empty,
@@ -114,3 +118,6 @@ inErrorContext ectx tc = mCatchError tc (\e -> mThrowError $ "Error in " ++ show
 toFuncDef::A.TopDef a -> FunctionInfo
 toFuncDef (A.FnDef _ rType (A.Ident name) args _) =
   FunctionInfo name (mapType rType) $ map mapType [t | A.Arg _ t _ <- args]
+
+typeExists::Type -> TypeChecker ()
+typeExists t = isTypeDefined t >>= (\b -> unless b $ mThrowError $ "Type " ++ show t ++ "is not defined")

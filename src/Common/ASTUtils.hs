@@ -98,3 +98,16 @@ removeBlocks (t : r) = t : removeBlocks r
 rmBlocksExcFirst::Stmt a -> Stmt a
 rmBlocksExcFirst (BStmt bsa (Block ba b)) = let nb = removeBlocks b in BStmt bsa (Block ba nb)
 rmBlocksExcFirst a = let [na] = removeBlocks [a] in na
+
+checkHasReturn::Bool -> [Stmt a] -> Bool
+checkHasReturn isVoid [] = isVoid
+checkHasReturn isVoid (BStmt _ (Block _ b): r) = checkHasReturn isVoid (b ++ r)
+checkHasReturn _ (Ret{}:_) = True -- sprawdzanie typów jest gdzieś indziej
+checkHasReturn _ (VRet{} : _) = True
+checkHasReturn _ [Cond _ _ s] = False
+checkHasReturn isVoid (CondElse _ _ ifT ifF :r) = (checkHasReturn isVoid [ifT] && checkHasReturn isVoid [ifF]) || checkHasReturn isVoid r
+checkHasReturn isVoid [While _ _ b] = checkHasReturn isVoid [b]
+checkHasReturn isVoid [For _ _ _ _ b] = checkHasReturn isVoid [b]
+checkHasReturn isVoid (_:r) = checkHasReturn isVoid r
+
+

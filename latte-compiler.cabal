@@ -43,12 +43,15 @@ library
       TypeChecker.TypeCheckUtils
       TypeChecker.TypeUtils
       TypeChecker.ExprSimplification
+      TypeChecker.TypeCheckerExpr
+      TypeChecker.TypeCheckerStmts
       Compiler.BlockGenerator
       Compiler.ILTranformer
       Compiler.ILBlockTransformer
       Compiler.ILStmtTransformer
       Compiler.ILExprTransformer
       Compiler.ILTransformerCommon
+      Compiler.Const
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
@@ -60,6 +63,8 @@ library
     , lens
     , mtl
     , ghc == 8.6.5
+    , raw-strings-qq
+    , split
   default-language: Haskell2010
 
 executable latte-compiler-exe
@@ -76,6 +81,9 @@ executable latte-compiler-exe
     , latte-compiler
     , lens
     , mtl
+    , filepath
+    , process
+    , split
   default-language: Haskell2010
 
 test-suite latte-compiler-test

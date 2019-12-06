@@ -22,7 +22,11 @@ transformStmt (Decl _ t inits) = do
 transformStmt (Ass _ lhs rhs) = do
   (s1, ptr) <- transformLExpr lhs
   (s2, v) <- transformRExpr rhs
-  return $ s1 ++ s2 ++ [Store v ptr]
+  case (getVarType ptr, getVarType v) of
+    (LMPointer t1, t2) | t1 == t2 -> return $ s1 ++ s2 ++ [Store v ptr]
+    (LMPointer i, _) -> do
+                          cVar <- newVar i
+                          return $ s1 ++ s2 ++ [Assignment cVar (Cast LM_Bitcast v i), Store cVar ptr]
 
 transformStmt (Incr _ e) = do
   (s1, ptr) <- transformLExpr e
@@ -52,12 +56,12 @@ transformStmt (Ret t e) = do
 
 transformStmt VRet{} = return [Return Nothing]
 
-transformStmt (Jump _ (Ident label)) = return [Branch $ LMNLocalVar (mkfs label) LMLabel ]
+transformStmt (Jump _ (Ident label)) = (: []) . Branch <$> getVar label
 
 transformStmt (CondJump _ cond (Ident ifTLabel) (Ident ifFLabel)) = do
   (s1, v) <- transformRExpr cond
-  let trueL = LMNLocalVar (mkfs ifTLabel) LMLabel
-  let falseL = LMNLocalVar (mkfs ifFLabel) LMLabel
+  trueL <- getVar ifTLabel
+  falseL <- getVar ifFLabel
   return $ s1 ++ [BranchIf v trueL falseL]
 
 transformStmt (SExp _ e) = fst <$> transformRExpr e
