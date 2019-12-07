@@ -18,6 +18,7 @@ import TypeChecker.TypeChecker(checkTypes)
 import Compiler.BlockGenerator
 import TypeChecker.TypeCheckUtils as TCU
 import Compiler.Const
+import Compiler.BaseExprFormTransformer
 
 import ErrM
 import Compiler.ILTranformer
@@ -40,7 +41,9 @@ run f p s = let ts = myLLexer s in case p ts of
            Ok  tree -> case checkTypes tree of
                             Left s -> putStrLn "ERROR!" >> print s >> exitFailure
                             Right s -> do
-                                        let blocks = toBlockStructure s
+                                        let bools = toBaseForm s
+                                        putStrLn $ printTree bools
+                                        let blocks = toBlockStructure bools
                                         compileAndSaveTree f blocks
                                         exitSuccess
 
