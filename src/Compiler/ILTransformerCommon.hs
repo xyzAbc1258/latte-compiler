@@ -10,7 +10,7 @@ import Control.Monad.State
 import Data.Map as M
 import FastString (mkFastString)
 import Control.Lens
-
+import Control.Monad.Writer
 
 mkfs = mkFastString
 
@@ -35,11 +35,28 @@ map2Type = mapTypes . TCU.mapType
 
 type Translator = State (M.Map String LlvmVar, Int)
 
+type StmtWriter = WriterT [LlvmStatement] Translator
+
+addStmt::LlvmStatement -> StmtWriter ()
+addStmt = tell . ( :[])
+
+sAddVar:: String -> LlvmVar -> StmtWriter ()
+sAddVar n v = lift $ addVar n v
+
+sAssign::LlvmType -> LlvmExpression -> StmtWriter LlvmVar
+sAssign t e = do
+  nVar <- lift $ newVar t
+  addStmt $ Assignment nVar e
+  return nVar
+
 addVar::String -> LlvmVar -> Translator ()
 addVar n v = modify (over _1 (M.insert n v))
 
 getVar::String -> Translator LlvmVar
 getVar n = gets ((M.! n) . fst)
+
+sGetVar::String -> StmtWriter LlvmVar
+sGetVar = lift . getVar
 
 createConstString::String -> Translator LlvmVar
 createConstString s = do
@@ -54,13 +71,15 @@ createConstString s = do
                   addVar ns nVar
                   return nVar
 
+
 newVar::LlvmType -> Translator LlvmVar
 newVar t = do
   c <- gets snd
   modify (over _2 ( + 1))
   return $ LMNLocalVar (mkfs $ "var" ++  show c) t
 
-
+sNewVar::LlvmType -> StmtWriter LlvmVar
+sNewVar = lift . newVar
 
 malloc::LlvmVar
 malloc = LMGlobalVar (mkfs "malloc") (LMFunction LlvmFunctionDecl{

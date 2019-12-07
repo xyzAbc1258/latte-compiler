@@ -6,6 +6,7 @@ import TypeChecker.TypeCheckUtils as TCU
 import Compiler.ILTransformerCommon
 import Compiler.ILStmtTransformer
 import Unique (getUnique)
+import Control.Monad.Writer
 
 transformBody::[Stmt TCU.Type] -> Translator LlvmBlocks
 transformBody s = do
@@ -17,10 +18,10 @@ transformBlock::Stmt TCU.Type -> Translator LlvmBlock
 transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
     vLabel <- getVar name
     let (LMLocalVar label _) = vLabel
-    lmStmts <- mapM transformStmt stmts
+    lmStmts <- execWriterT $ mapM_ transformStmt stmts
     return $ LlvmBlock {
       blockLabel = label,
-      blockStmts = join lmStmts
+      blockStmts = lmStmts
     }
 
 transformBlock A.Empty{} = return $ LlvmBlock {
