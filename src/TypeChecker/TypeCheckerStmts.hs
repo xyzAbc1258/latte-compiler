@@ -120,14 +120,15 @@ checkStmts (For _ typ (Ident v) collection body : t) = do
   typeExists nt
   collExpr <- fmap getType <$> checkExpr collection
   expectsType (TCC.Array nt) $ extract collExpr
+  (nName, varMap) <- declareLocalVariable v nt
   bodyExpr <- case body of
-    BStmt _ (Block _ l) -> (: []) . BStmt None . Block None <$> local (withVariable v nt . (emptyEnv :)) (checkStmts l)
-    l -> local (withVariable v nt . (emptyEnv :)) $ checkStmts [l]
+    BStmt _ (Block _ l) -> (: []) . BStmt None . Block None <$> local (varMap . (emptyEnv :)) (checkStmts l)
+    l -> local (varMap . (emptyEnv :)) $ checkStmts [l]
   let [sb] = bodyExpr
   iteratorIdent <- newIdentifier
   let decl = Decl None (AbsLatte.Int None) [Init None (Ident iteratorIdent) (ELitInt TCC.Int 0)]
   let iteratorVar = EVar TCC.Int (Ident iteratorIdent)
-  let elemDecl = Decl None (None <$ typ) [Init None (Ident v) (EArrAcc nt collExpr iteratorVar)]
+  let elemDecl = Decl None (None <$ typ) [Init None (Ident nName) (EArrAcc nt collExpr iteratorVar)]
   let incrementIter = Incr (None) iteratorVar
   let newSb = case sb of
                 BStmt _ (Block _ l) -> BStmt None (Block None (elemDecl : l ++ [incrementIter]))

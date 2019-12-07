@@ -124,6 +124,7 @@ define i32 @__cmpStrings(i8* nocapture readonly, i8* nocapture readonly) local_u
   %5 = zext i1 %4 to i32
   ret i32 %5
 }
+declare void @llvm.memset.p0i8.i64(i8* nocapture writeonly, i8, i64, i32, i1) #4
 
 ; Function Attrs: nounwind readonly
 declare i32 @strcmp(i8* nocapture, i8* nocapture) local_unnamed_addr #8

@@ -6,3 +6,5 @@ out
 bnfc-folder
 test
 !test/Spec.hs
+*.bc
+*.ll

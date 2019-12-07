@@ -125,7 +125,7 @@ transformRExpr e@(EVirtCall rt obj num args) = do
 transformRExpr (EApp r (EVar _ (Ident fName)) args) = do
   (argss, vs) <- mapAndUnzipM transformRExpr args
   fVar <- getVar fName
-  nValue <- newVar $ mapTypes r
+  nValue <- newVar $ valTType r
   let ass = (if r == TCU.Void then Llvm.Expr else Assignment nValue) (Call StdCall fVar vs [])
   return ((argss >>= id) ++ [ass], nValue)
 
@@ -173,6 +173,7 @@ transformLExpr (ENewArr _ t size) = do (s1, n1) <- transformRExpr size
                                        allSize <- newVar i64
                                        tmp1 <- newVar i8Ptr
                                        tmp2 <- newVar i8Ptr
+                                       sext <- newVar i64
                                        --structSize <- newVar i64 --TODO 12 lub 8 ??
                                        -- %Size = getelementptr %T* null, i32 1
                                        -- %SizeI = ptrtoint %T* %Size to i32
@@ -180,7 +181,8 @@ transformLExpr (ENewArr _ t size) = do (s1, n1) <- transformRExpr size
                                        let stmts
                                              = [Assignment sizeCalcPtr (GetElemPtr False (LMLitVar (LMNullLit (LMPointer elemType))) [number 1]),
                                                 Assignment sizeCalcOne (Cast LM_Ptrtoint sizeCalcPtr i64),
-                                                Assignment allSize (LlvmOp LM_MO_Mul sizeCalcOne n1),
+                                                Assignment sext  (Cast Llvm.LM_Sext n1 i64),
+                                                Assignment allSize (LlvmOp LM_MO_Mul sizeCalcOne sext),
                                                 --Assignment structSize (LlvmOp LM_MO_Add  )
                                                 Assignment tmp1 (Call StdCall malloc [number64 8] []),
                                                 callMemset tmp1 (number64 8),
@@ -189,8 +191,8 @@ transformLExpr (ENewArr _ t size) = do (s1, n1) <- transformRExpr size
                                                 Store n1 sizePtr,
                                                 Assignment tmp2 (Call StdCall malloc [allSize] []),
                                                 callMemset tmp2 allSize,
-                                                Assignment tmpContPtr (Cast LM_Bitcast tmp2 (LMPointer structType)),
-                                                Assignment contentPtr (GetElemPtr True arrPtr [zero, number 1]),
+                                                Assignment tmpContPtr (Cast LM_Bitcast tmp2 (LMPointer elemType)),
+                                                Assignment contentPtr (GetElemPtr True arrPtr [zero, number 1]) ,
                                                 Store tmpContPtr contentPtr]
                                        return (s1 ++ stmts, arrPtr)
 
