@@ -14,10 +14,9 @@ transformStmt (Decl _ t inits) = do
   let varNames = map ((`LMNLocalVar` LMPointer llvmType) . mkfs) names
   zipWithM_ addVar names varNames
   let declarations = map (`Assignment` Alloca llvmType 1) varNames
-  (stmts, values) <- mapAndUnzipM transformRExpr [e | Init _ _ e <- inits]
-  let stores = zipWith Store values varNames
-  zipWithM_ addVar names varNames
-  return $ declarations ++ (stmts >>= id) ++ stores
+  let assigns = [Ass None (EVar (mapType t) n) e | Init _ n e <- inits]
+  stores <- join <$> mapM transformStmt assigns
+  return $ declarations ++  stores
 
 transformStmt (Ass _ lhs rhs) = do
   (s1, ptr) <- transformLExpr lhs
