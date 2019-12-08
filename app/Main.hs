@@ -33,13 +33,13 @@ runFile p f = putStrLn f >> readFile f >>= run f p
 run ::  FilePath -> ParseFun (Program a) -> String -> IO ()
 run f p s = let ts = myLLexer s in case p ts of
            Bad s    -> do putStrLn "ERROR!"
-                          putStrLn "\nParse              Failed...\n"
+                          putStrLn "Parse Failed..."
                           putStr "Tokens:"
                           putStr $ show ts
                           putStrLn s
                           exitFailure
            Ok  tree -> case checkTypes tree of
-                            Left s -> putStrLn "ERROR!" >> print s >> exitFailure
+                            Left s -> putStrLn "ERROR!" >> putStrLn s >> exitFailure
                             Right s -> do
                                         let bools = toBaseForm s
                                         putStrLn $ printTree bools

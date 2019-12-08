@@ -20,7 +20,7 @@ transformRExpr ELitTrue{} = return (LMLitVar $ LMIntLit 1 i1)
 transformRExpr ELitFalse{} = return (LMLitVar $ LMIntLit 0 i1)
 
 transformRExpr (EString _ v) = do
-  v <- lift $ createConstString v
+  v <- lift $ lift $ createConstString v
   sAssign i8Ptr (GetElemPtr True (pVarLift v) [number 0, number 0])
 
 transformRExpr (ENull t _) = return $ LMLitVar $ LMNullLit $ valTType t
@@ -47,12 +47,15 @@ transformRExpr (Not t v1) = do
   sAssign i1 (LlvmOp LM_MO_Sub (LMLitVar (LMIntLit 1 i1)) v)
 
 transformRExpr (EVar t (Ident name)) = do
-  v <- sGetVar name
-  let vType = valTType t
-  case getVarType v of
-    (LMPointer t) | t == vType -> sAssign vType (Load v)
-    t | t == vType -> return v
-    t -> return v --error $ "Wrong expression type: "
+  hasLocal <- hasLocalVar name
+  if hasLocal then getLocalVar name
+  else do
+        v <- sGetVar name
+        let vType = valTType t
+        case getVarType v of
+          (LMPointer t) | t == vType -> sAssign vType (Load v) >>= (\v -> sAddLocalVar name v False) >> getLocalVar name
+          t | t == vType -> return v
+          t -> return v --error $ "Wrong expression type: "
 
 transformRExpr e@(EFldNoAcc t obj num) = do
   n1 <- transformLExpr e
@@ -77,10 +80,6 @@ transformRExpr (ENewObj t@(TCU.Class name) _) = do
 
 transformRExpr e@(ENewArr _ t size) = --do
   transformLExpr e
-  --(s, v) <- transformLExpr e
-  --let LMPointer nt = getVarType v
-  --nVar <- newVar nt
-  --return (s ++ [Assignment nVar (Load v)], nVar)
 
 transformRExpr e@(EVirtCall rt obj num args) = do
   let rtt = valTType rt

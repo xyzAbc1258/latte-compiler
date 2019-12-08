@@ -1,3 +1,8 @@
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 module Compiler.ILTransformerCommon(
   module Compiler.ILTransformerCommon,
   module Control.Monad.State
@@ -11,6 +16,7 @@ import Data.Map as M
 import FastString (mkFastString)
 import Control.Lens
 import Control.Monad.Writer
+import Data.Maybe
 
 mkfs = mkFastString
 
@@ -35,17 +41,17 @@ map2Type = mapTypes . TCU.mapType
 
 type Translator = State (M.Map String LlvmVar, Int)
 
-type StmtWriter = WriterT [LlvmStatement] Translator
+type StmtWriter = WriterT [LlvmStatement] (LocalT (M.Map String (LlvmVar, Bool)) Translator)
 
 addStmt::LlvmStatement -> StmtWriter ()
 addStmt = tell . ( :[])
 
 sAddVar:: String -> LlvmVar -> StmtWriter ()
-sAddVar n v = lift $ addVar n v
+sAddVar n v = lift $ lift $ addVar n v
 
 sAssign::LlvmType -> LlvmExpression -> StmtWriter LlvmVar
 sAssign t e = do
-  nVar <- lift $ newVar t
+  nVar <- lift $ lift $ newVar t
   addStmt $ Assignment nVar e
   return nVar
 
@@ -56,7 +62,16 @@ getVar::String -> Translator LlvmVar
 getVar n = gets ((M.! n) . fst)
 
 sGetVar::String -> StmtWriter LlvmVar
-sGetVar = lift . getVar
+sGetVar = lift . lift . getVar
+
+sAddLocalVar::String -> LlvmVar -> Bool -> StmtWriter ()
+sAddLocalVar n v b = modLocal (M.insert n (v, b))
+
+hasLocalVar::String -> StmtWriter Bool
+hasLocalVar n = isJust . (M.!? n) <$> getLocal
+
+getLocalVar::String -> StmtWriter LlvmVar
+getLocalVar n = fst . (M.! n) <$> getLocal
 
 createConstString::String -> Translator LlvmVar
 createConstString s = do
@@ -79,7 +94,7 @@ newVar t = do
   return $ LMNLocalVar (mkfs $ "var" ++  show c) t
 
 sNewVar::LlvmType -> StmtWriter LlvmVar
-sNewVar = lift . newVar
+sNewVar = lift . lift . newVar
 
 malloc::LlvmVar
 malloc = LMGlobalVar (mkfs "malloc") (LMFunction LlvmFunctionDecl{
@@ -109,3 +124,42 @@ litNum v t = LMLitVar (LMIntLit v t)
 
 callMemset::LlvmVar -> LlvmVar -> LlvmStatement
 callMemset ptr size = Llvm.Expr (Call StdCall memset [ptr, litNum 0 i8, size, litNum 1 i32, litNum 0 i1] [])
+
+newtype LocalT s m a = LocalT {runLocal:: s -> m (a, s)}
+
+instance (Monad m) => Functor (LocalT s m) where
+  fmap f m = m >>= (return . f)
+
+instance (Monad m) => Applicative (LocalT s m) where
+  pure = return
+  f <*> a = do nf <- f
+               nf <$> a
+
+instance (Monad m) => Monad (LocalT a m) where
+  return a = LocalT{ runLocal = \s -> return (a,s)}
+  f >>= m = LocalT { runLocal = \s -> runLocal f s >>= (\(a,ns) -> runLocal (m a) ns)}
+
+instance MonadTrans (LocalT a) where
+  lift m = LocalT {runLocal = \s -> (,s) <$> m}
+
+
+evalLocal::(Monad m) => LocalT s m a -> s -> m s
+evalLocal l s = snd <$> runLocal l s
+
+class MonadLocal s m | m -> s where
+   getLocal::(Monad m) => m s
+   modLocal::(Monad m) => (s -> s) -> m ()
+
+instance (Monad m) => MonadLocal s (LocalT s m) where
+  getLocal = LocalT {runLocal = \s -> return (s,s)}
+  modLocal f = LocalT {runLocal = \s -> return ((), f s)}
+
+instance (Monoid a, Monad m, MonadLocal s m) => MonadLocal s (WriterT a m) where
+  getLocal = lift getLocal
+  modLocal = lift . modLocal
+
+
+instance (MonadState s m) => MonadState s (LocalT l m)  where
+  get = lift get
+  put = lift . put
+  state = lift . state

@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Compiler.ILBlockTransformer where
 
 import Llvm
@@ -7,6 +8,7 @@ import Compiler.ILTransformerCommon
 import Compiler.ILStmtTransformer
 import Unique (getUnique)
 import Control.Monad.Writer
+import qualified Data.Map as M
 
 transformBody::[Stmt TCU.Type] -> Translator LlvmBlocks
 transformBody s = do
@@ -18,10 +20,13 @@ transformBlock::Stmt TCU.Type -> Translator LlvmBlock
 transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
     vLabel <- getVar name
     let (LMLocalVar label _) = vLabel
-    lmStmts <- execWriterT $ mapM_ transformStmt stmts
+    (lmStmts, locals) <- flip runLocal M.empty $ execWriterT $ mapM_ transformStmt stmts 
+    let toSave = map (\(n, (v, _)) -> (n, v)) $ filter (snd . snd) $ M.toList locals
+    stores <- mapM (\(n, v) -> Store v <$> getVar n) $ toSave
+    let (ret: blockS) = reverse lmStmts
     return $ LlvmBlock {
       blockLabel = label,
-      blockStmts = lmStmts
+      blockStmts = (reverse blockS) ++ stores ++ [ret]
     }
 
 transformBlock A.Empty{} = return $ LlvmBlock {
