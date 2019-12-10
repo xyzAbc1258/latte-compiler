@@ -1,18 +1,23 @@
+{-# LANGUAGE TupleSections #-}
 module Compiler.BlockGenerator where
 
 import AbsLatte
 import TypeChecker.TypeCheckUtils as TCC
-import Control.Monad.State
+import Control.Monad.State as S
 import Common.Utils
 import Common.ASTUtils
 import qualified Common.ASTModifier as ASTM
+import Common.Graphs as G
+import qualified Data.Set as Set
+import qualified Data.Map as M
+import Data.List as List
 
 type LabelGen = State Int
 
 genLabel:: LabelGen Ident
 genLabel = do
   c <- get
-  modify (1 +)
+  S.modify (1 +)
   return $ Ident $ "label_" ++ (show c)
 
 toBlockStructure::(Defaultable a) => Program a -> Program a
@@ -29,7 +34,44 @@ lastLabel = Ident "last"
 splitStmtsToBlocksA::(Defaultable a) =>[Stmt a] -> LabelGen [Stmt a]
 splitStmtsToBlocksA s = do
   let first = Ident "entry"
-  splitStmtsToBlocks first s lastLabel
+  stmts <- splitStmtsToBlocks first s lastLabel
+  if length stmts  < 2 then return stmts
+  else return $ compactBlocks stmts
+
+compactBlocks::(Show a) => [Stmt a] -> [Stmt a]
+compactBlocks s =
+  let successors = join $ map successor s in
+  let succMap = M.fromList $ groupByFirst successors in
+  let predMap = M.fromList $ groupByFirst (map (\(a,b) -> (b,a)) successors) in
+  let withSingleSucc = M.map head $ M.filter (( == 1) . length) succMap in
+  let withSinglePred = M.map head $ M.filter (( == 1) . length) predMap in
+  let toCompact = M.filterWithKey (\ k v -> (withSinglePred M.!? v) == Just k) withSingleSucc in
+  if M.null toCompact then s
+  else
+    let (n, h) = head $ M.toList toCompact in
+    let (Just ind) = List.findIndex (\(NamedBStmt _ na _) -> na == n) s in
+    let (NamedBStmt _ _ (Block _ hb), NamedBStmt v nn (Block vb hs)) = (findByName h s, findByName n s) in
+    let rest = filter (\(NamedBStmt _ r _) -> r /= n && r /= h) s in
+    let nBlock = NamedBStmt v n (Block vb $ (reverse $ tail $ reverse hs) ++ hb) in
+    let (f,r) = List.splitAt ind rest in
+    compactBlocks (f ++ [nBlock] ++ r) -- pojedynczo żeby nie napsuć :)
+
+
+findByName id sts =
+  case filter (\(NamedBStmt _ n _) -> n == id) sts of
+    [r] -> r
+    l -> error $ show l ++ " $ " ++ show id ++ " $ " ++ show sts
+
+
+successor::(Show a) => Stmt a -> [(Ident,Ident)]
+successor (NamedBStmt _ _ (Block _ [])) = []
+successor (NamedBStmt _ n (Block _ s)) =
+  let l = last s in
+  case l of
+    VRet {} -> []
+    Ret {} -> []
+    CondJump _ _ r1 r2 -> [(n,r1),(n,r2)]
+    Jump _ r -> [(n,r)]
 
 splitStmtsToBlocks::(Defaultable a) =>Ident -> [Stmt a] -> Ident -> LabelGen [Stmt a]
 splitStmtsToBlocks current s next = do

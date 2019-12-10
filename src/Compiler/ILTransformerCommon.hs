@@ -12,7 +12,7 @@ import Llvm
 import AbsLatte as A
 import TypeChecker.TypeCheckUtils as TCU
 import Control.Monad.State
-import Data.Map as M
+import qualified Data.Map as M
 import FastString (mkFastString)
 import Control.Lens
 import Control.Monad.Writer
@@ -163,3 +163,30 @@ instance (MonadState s m) => MonadState s (LocalT l m)  where
   get = lift get
   put = lift . put
   state = lift . state
+
+
+replaceVars::LlvmVar -> LlvmVar -> LlvmBlock -> LlvmBlock
+replaceVars from to b = b {blockStmts = map (replaceVarsInStmt from to) $ blockStmts b}
+
+replaceVarsInStmt::LlvmVar -> LlvmVar -> LlvmStatement -> LlvmStatement
+replaceVarsInStmt f t (Assignment d e) = Assignment (rviv f t d) (replaceVarsInExpr f t e)
+replaceVarsInStmt f t (Branch b) = Branch (rviv f t b)
+replaceVarsInStmt f t (BranchIf b ift iff) = BranchIf (rviv f t b) (rviv f t ift) (rviv f t iff)
+replaceVarsInStmt f t (Expr a) = Expr (replaceVarsInExpr f t a)
+replaceVarsInStmt f t (Return v) = Return $ fmap (replaceVarInVar f t) v
+
+replaceVarInVar::LlvmVar -> LlvmVar -> LlvmVar -> LlvmVar
+replaceVarInVar from to var | from == var = to
+replaceVarInVar _ _ var = var
+
+rviv = replaceVarInVar
+
+replaceVarsInExpr::LlvmVar -> LlvmVar -> LlvmExpression -> LlvmExpression
+replaceVarsInExpr from to a@Alloca{} = a
+replaceVarsInExpr f t (LlvmOp op a b) = LlvmOp op (rviv f t a) (rviv f t b)
+replaceVarsInExpr f t (Compare op a b) = Compare op (rviv f t a) (rviv f t b)
+replaceVarsInExpr f t (Load a) = Load (rviv f t a)
+replaceVarsInExpr f t (GetElemPtr b v args) = GetElemPtr b (rviv f t v) (map (rviv f t) args)
+replaceVarsInExpr f t (Cast op v typ) = Cast op (rviv f t v) typ
+replaceVarsInExpr f t (Call typ on args w) = Call typ (rviv f t on) (map (rviv f t ) args ) w
+replaceVarsInExpr f t (Phi typ p) = Phi typ $ map (\(a,b) -> (rviv f t a, rviv f t b))  p

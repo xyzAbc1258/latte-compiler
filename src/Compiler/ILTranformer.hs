@@ -107,7 +107,7 @@ translateFunction (FnDef _ _ (Ident fname) args (Block _ body)) = do
   let (LMGlobalVar _ (LMFunction decl) _ _ _ _ ) = varDef
   let funcArgs = [mkfs n | Arg _ _ (Ident n) <- args]
   mapM_ (uncurry addVar) [(n, LMNLocalVar (mkfs n) $ valType t) | Arg _ t (Ident n) <- args]
-  blocks <- transformBody body
+  blocks <- transformFuncBody body
   return $ LlvmFunction {
     funcDecl = decl,
     funcArgs = funcArgs,

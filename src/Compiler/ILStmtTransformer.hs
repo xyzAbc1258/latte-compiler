@@ -59,7 +59,10 @@ transformStmt (CondJump _ cond (Ident ifTLabel) (Ident ifFLabel)) = do
   v <- transformRExpr cond
   trueL <- sGetVar ifTLabel
   falseL <- sGetVar ifFLabel
-  addStmt $ BranchIf v trueL falseL
+  addStmt $ case v of
+              (LMLitVar (LMIntLit 1 (LMInt 1))) -> Branch trueL
+              (LMLitVar (LMIntLit 0 (LMInt 1))) -> Branch falseL
+              _ -> BranchIf v trueL falseL
 
 transformStmt (SExp _ e) = void $ transformRExpr e
 

@@ -42,7 +42,6 @@ run f p s = let ts = myLLexer s in case p ts of
                             Left s -> putStrLn "ERROR!" >> putStrLn s >> exitFailure
                             Right s -> do
                                         let bools = toBaseForm s
-                                        putStrLn $ printTree bools
                                         let blocks = toBlockStructure bools
                                         compileAndSaveTree f blocks
                                         exitSuccess

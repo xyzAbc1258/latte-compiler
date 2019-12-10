@@ -52,7 +52,8 @@ library
       Compiler.ILExprTransformer
       Compiler.ILTransformerCommon
       Compiler.Const
-      Compiler.BaseExprFormTransformer
+      Compiler.BaseExprFormTransformer,
+      Compiler.PhiPropagator
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
@@ -74,7 +75,7 @@ executable latte-compiler-exe
       Paths_latte_compiler
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -package ghc-8.6.5
+  ghc-options: -debug -rtsopts -package ghc-8.6.5
   build-depends:
       array
     , base >=4.7 && <5

@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 module Common.Utils where
 
@@ -9,7 +10,7 @@ import Control.Monad.State
 import Data.Maybe
 import Control.Applicative
 
-import Data.List (intercalate)
+import Data.List as List
 import Data.List.Split as Ls
 
 
@@ -36,8 +37,15 @@ splitOn pred coll = _splitOn id coll []
   where _splitOn f [] r = reverse $filter (not . null) $ f [] : r
         _splitOn f (h:t) r = if pred h then _splitOn id t ([h] : f [] : r) else _splitOn (f . (h :)) t r
         
-class Defaultable a where
+class (Show a) => Defaultable a where
   getDefault :: a
   
 instance Defaultable () where
   getDefault = ()
+  
+  
+groupByFirst::(Eq a) => [(a, b)] -> [(a, [b])]
+groupByFirst l = 
+  let keys = nub $ map fst l in
+  let p = map (\k -> (k, map snd $ filter (( == k) . fst) l)) keys in
+  p

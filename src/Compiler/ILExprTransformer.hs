@@ -44,18 +44,18 @@ transformRExpr (ERel t v1 NE{} v2) = transformBinaryCmp t v1 v2 LM_CMP_Ne
 transformRExpr (Neg t v1) = transformRExpr (EMul t (ELitInt t (-1)) (Times t) v1)
 transformRExpr (Not t v1) = do
   v <- transformRExpr v1
-  sAssign i1 (LlvmOp LM_MO_Sub (LMLitVar (LMIntLit 1 i1)) v)
+  sAssign i1 (LlvmOp LM_MO_Sub (litNum 1 i1) v)
 
 transformRExpr (EVar t (Ident name)) = do
   hasLocal <- hasLocalVar name
-  if hasLocal then getLocalVar name
+  if hasLocal then getLocalVar name -- redukcja loadów, przed usunięciem store'ów
   else do
         v <- sGetVar name
         let vType = valTType t
         case getVarType v of
           (LMPointer t) | t == vType -> sAssign vType (Load v) >>= (\v -> sAddLocalVar name v False) >> getLocalVar name
           t | t == vType -> return v
-          t -> return v --error $ "Wrong expression type: "
+          t -> sAssign vType (Cast LM_Bitcast v vType)
 
 transformRExpr e@(EFldNoAcc t obj num) = do
   n1 <- transformLExpr e
@@ -151,17 +151,38 @@ transformLExpr e =  sNewVar $ mapTypes $ extract e --Tu będą błędy :)
 
 
 transformBinaryOp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmMachOp -> StmtWriter LlvmVar
-transformBinaryOp = transformGenBin LlvmOp
-
-transformBinaryCmp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmCmpOp -> StmtWriter LlvmVar
-transformBinaryCmp = transformGenBin Compare
-
-transformGenBin::(a -> LlvmVar -> LlvmVar -> LlvmExpression) -> TCU.Type -> Expr TCU.Type -> Expr TCU.Type -> a -> StmtWriter LlvmVar
-transformGenBin oper rt v1 v2 op = do
+transformBinaryOp rt v1 v2 op = do
   v1 <- transformRExpr v1
   v2 <- transformRExpr v2
-  sAssign (valTType rt) (oper op v1 v2)
+  case (v1, v2, op) of
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Add) -> return $ number (a + b)
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Sub) -> return $ number (a - b)
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Mul) -> return $ number (a * b)
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_SDiv) | b /= 0 -> return $ number (a `div` b)
+    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_Sub) -> return $ number (a - b)
+    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_And) ->
+      return $ litNum (if a + b == 2 then 1 else 0) i1
+    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_Or) -> 
+      return $ litNum (if a + b > 0 then 1 else 0) i1
+    _ -> sAssign (valTType rt) (LlvmOp op v1 v2)
 
+
+
+transformBinaryCmp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmCmpOp -> StmtWriter LlvmVar
+transformBinaryCmp rt v1 v2 op = do
+  let bToLit a = return $ if a then litNum 1 i1 else litNum 0 i1
+  v1 <- transformRExpr v1
+  v2 <- transformRExpr v2
+  case (v1, v2, op) of
+    (LMLitVar (LMIntLit a (LMInt n1)), LMLitVar (LMIntLit b (LMInt n2)), LM_CMP_Eq) | n1 == n2 -> 
+      return $ if a == b then litNum 1 (LMInt n1) else litNum 0 (LMInt n1)
+    (LMLitVar (LMIntLit a (LMInt n1)), LMLitVar (LMIntLit b (LMInt n2)), LM_CMP_Ne) -> 
+      return $ if a /= b then litNum 1 (LMInt n1) else litNum 0 (LMInt n1)
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_CMP_Sle) -> bToLit (a <= b)
+    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_CMP_Sge) -> bToLit (a >= b)
+    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_CMP_Slt) -> bToLit (a < b)
+    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_CMP_Sgt) -> bToLit (a > b) 
+    _ -> sAssign (valTType rt) (Compare op v1 v2)
 
 
 calcStructSize::LlvmType -> StmtWriter LlvmVar
