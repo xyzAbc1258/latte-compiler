@@ -54,15 +54,11 @@ checkStmts (Ass _ lhs rhs : t) = do
     LValue t -> expectsTypeAE t rhsType
   (Ass None (fmap getType lhsType) (fmap getType rhsType) :) <$> checkStmts t
 
-checkStmts (Incr _ expr : t) = do
-  ex <-checkExpr expr
-  expectsAllocType (LValue TCC.Int) (extract ex)
-  (Incr TCC.Int (fmap getType ex) :)  <$> checkStmts t --TODO zamienić na x = x+1 ?
+checkStmts (Incr v expr : t) =
+  checkStmts $ Ass v expr (EAdd v expr (Plus v) (ELitInt v 1)): t
 
-checkStmts (Decr _ expr : t) = do
-  ex <-checkExpr expr
-  expectsAllocType (LValue TCC.Int) (extract ex)
-  (Decr TCC.Int (fmap getType ex) :)  <$> checkStmts t
+checkStmts (Decr v expr : t) =
+  checkStmts $ Ass v expr (EAdd v expr (Minus v) (ELitInt v 1)): t
 
 checkStmts (Ret _ expr : t) = do
   var <- fromJust <$> getInScope Global (varL retVarName)
@@ -129,7 +125,7 @@ checkStmts (For _ typ (Ident v) collection body : t) = do
   let decl = Decl None (AbsLatte.Int None) [Init None (Ident iteratorIdent) (ELitInt TCC.Int 0)]
   let iteratorVar = EVar TCC.Int (Ident iteratorIdent)
   let elemDecl = Decl None (None <$ typ) [Init None (Ident nName) (EArrAcc nt collExpr iteratorVar)]
-  let incrementIter = Incr (None) iteratorVar
+  let incrementIter = Ass None iteratorVar (EAdd TCC.Int iteratorVar (Plus None) (ELitInt TCC.Int 1))
   let newSb = case sb of
                 BStmt _ (Block _ l) -> BStmt None (Block None (elemDecl : l ++ [incrementIter]))
                 s -> BStmt None (Block None (elemDecl : s : [incrementIter]))

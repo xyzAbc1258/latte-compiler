@@ -35,18 +35,6 @@ transformStmt (Ass _ lhs rhs) = do
                           cVar <- sAssign i (Cast LM_Bitcast v i)
                           addStmt $ Store cVar ptr
 
-transformStmt (Incr _ e) = do
-  ptr <- transformLExpr e
-  v   <- sAssign i32 (Load ptr)
-  inc <- sAssign i32 (LlvmOp LM_MO_Add v (number 1))
-  addStmt $ Store inc ptr
-
-transformStmt (Decr _ e) = do
-  ptr <- transformLExpr e
-  v   <- sAssign i32 (Load ptr)
-  inc <- sAssign i32 (LlvmOp LM_MO_Add v (number (-1)))
-  addStmt $ Store inc ptr
-
 transformStmt (Ret t e) = do
   v <- transformRExpr e
   addStmt $ Return $ Just v
