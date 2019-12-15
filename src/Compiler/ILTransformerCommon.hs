@@ -17,6 +17,8 @@ import FastString (mkFastString)
 import Control.Lens
 import Control.Monad.Writer
 import Data.Maybe
+import Llvm.PpLlvm
+import Control.Lens(_1,_2)
 
 mkfs = mkFastString
 
@@ -41,7 +43,18 @@ map2Type = mapTypes . TCU.mapType
 
 type Translator = State (M.Map String LlvmVar, Int)
 
-type StmtWriter = WriterT [LlvmStatement] (LocalT (M.Map String (LlvmVar, Bool)) Translator)
+
+data VarOps = Read | Write | ReadWrite
+
+varReads::VarOps -> Bool
+varReads Write = False
+varReads _ = True
+
+varWrites::VarOps -> Bool
+varWrites Read = False
+varWrites _ = True
+
+type StmtWriter = WriterT [LlvmStatement] (LocalT (M.Map String (LlvmVar, VarOps), [(LlvmVar, LlvmExpression)]) Translator)
 
 addStmt::LlvmStatement -> StmtWriter ()
 addStmt = tell . ( :[])
@@ -50,10 +63,24 @@ sAddVar:: String -> LlvmVar -> StmtWriter ()
 sAddVar n v = lift $ lift $ addVar n v
 
 sAssign::LlvmType -> LlvmExpression -> StmtWriter LlvmVar
-sAssign t e = do
-  nVar <- lift $ lift $ newVar t
-  addStmt $ Assignment nVar e
-  return nVar
+sAssign t e = lift (lift $ newVar t) >>= (`tryLocal` e)
+
+rememberLocal::LlvmVar -> LlvmExpression -> StmtWriter ()
+rememberLocal v e =
+  case e of
+    Load{} -> return () --loadów dla pewności nie zapisujemy, pewnie czegoś jeszcze też nie
+    Alloca{} -> return ()
+    e -> modLocal (_2 %~ ((v,e):))
+
+tryLocal::LlvmVar -> LlvmExpression -> StmtWriter LlvmVar
+tryLocal nv e = do
+  exists <- map fst . filter (( == e) . snd) . (^. _2) <$> getLocal
+  case exists of
+    [v] -> return v
+    [] -> do
+            addStmt $ Assignment nv e
+            rememberLocal nv e
+            return nv
 
 addVar::String -> LlvmVar -> Translator ()
 addVar n v = modify (over _1 (M.insert n v))
@@ -64,14 +91,21 @@ getVar n = gets ((M.! n) . fst)
 sGetVar::String -> StmtWriter LlvmVar
 sGetVar = lift . lift . getVar
 
-sAddLocalVar::String -> LlvmVar -> Bool -> StmtWriter ()
-sAddLocalVar n v b = modLocal (M.insert n (v, b))
+sAddLocalVar::String -> LlvmVar -> VarOps -> StmtWriter ()
+sAddLocalVar n v b = do
+  (l,_) <- getLocal
+  let current = snd <$> (l M.!? n)
+  case (b, current) of
+    (Write, Just Read) -> modLocal (_1 %~ M.insert n (v, ReadWrite))
+    (Read, Just Write) -> modLocal (_1 %~ M.insert n (v, Write))
+    (_, Just ReadWrite) -> modLocal (_1 %~ M.insert n (v, ReadWrite))
+    _ -> modLocal (_1 %~ M.insert n (v, b))
 
 hasLocalVar::String -> StmtWriter Bool
-hasLocalVar n = isJust . (M.!? n) <$> getLocal
+hasLocalVar n = isJust . (M.!? n) . (^. _1) <$> getLocal
 
 getLocalVar::String -> StmtWriter LlvmVar
-getLocalVar n = fst . (M.! n) <$> getLocal
+getLocalVar n = fst . (M.! n) . (^. _1) <$> getLocal
 
 createConstString::String -> Translator LlvmVar
 createConstString s = do
@@ -125,7 +159,7 @@ litNum v t = LMLitVar (LMIntLit v t)
 callMemset::LlvmVar -> LlvmVar -> LlvmStatement
 callMemset ptr size = Llvm.Expr (Call StdCall memset [ptr, litNum 0 i8, size, litNum 1 i32, litNum 0 i1] [])
 
-newtype LocalT s m a = LocalT {runLocal:: s -> m (a, s)}
+newtype LocalT s m a = LocalT {runLocal:: s -> m (a, s)} --W praktyce to jest stan, ale nie chciałem mieszać z monada Translator
 
 instance (Monad m) => Functor (LocalT s m) where
   fmap f m = m >>= (return . f)
@@ -168,12 +202,16 @@ instance (MonadState s m) => MonadState s (LocalT l m)  where
 replaceVars::LlvmVar -> LlvmVar -> LlvmBlock -> LlvmBlock
 replaceVars from to b = b {blockStmts = map (replaceVarsInStmt from to) $ blockStmts b}
 
+replaceVarsInStmts::LlvmVar -> LlvmVar -> [LlvmStatement] -> [LlvmStatement]
+replaceVarsInStmts f t = map (replaceVarsInStmt f t)
+
 replaceVarsInStmt::LlvmVar -> LlvmVar -> LlvmStatement -> LlvmStatement
 replaceVarsInStmt f t (Assignment d e) = Assignment (rviv f t d) (replaceVarsInExpr f t e)
 replaceVarsInStmt f t (Branch b) = Branch (rviv f t b)
 replaceVarsInStmt f t (BranchIf b ift iff) = BranchIf (rviv f t b) (rviv f t ift) (rviv f t iff)
 replaceVarsInStmt f t (Expr a) = Expr (replaceVarsInExpr f t a)
 replaceVarsInStmt f t (Return v) = Return $ fmap (replaceVarInVar f t) v
+replaceVarsInStmt f t (Store v1 v2) = Store (replaceVarInVar f t v1) (replaceVarInVar f t v2) -- do wywalenia po przejściu do SSA
 
 replaceVarInVar::LlvmVar -> LlvmVar -> LlvmVar -> LlvmVar
 replaceVarInVar from to var | from == var = to

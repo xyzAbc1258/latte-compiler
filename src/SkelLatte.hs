@@ -70,6 +70,9 @@ transType x = case x of
   Array _ type_ -> failure x
   Fun _ type_ types -> failure x
   Ptr _ type_ -> failure x
+transBranchV :: Show a => BranchV a -> Result
+transBranchV x = case x of
+  BranchVar _ expr ident -> failure x
 transExpr :: Show a => Expr a -> Result
 transExpr x = case x of
   EVersVar _ ident integer -> failure x
@@ -94,9 +97,6 @@ transExpr x = case x of
   EOr _ expr1 expr2 -> failure x
   EVirtCall _ expr integer exprs -> failure x
   EFldNoAcc _ expr integer -> failure x
-transBranchV :: Show a => BranchV a -> Result
-transBranchV x = case x of
-  BranchVar _ expr ident -> failure x
 transAddOp :: Show a => AddOp a -> Result
 transAddOp x = case x of
   Plus _ -> failure x

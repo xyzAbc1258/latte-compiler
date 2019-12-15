@@ -146,6 +146,9 @@ class (Monad m) => MonadRErrorC e m where
   mThrowError::e -> m a
   mCatchError::m a -> (e -> m a) -> m a
 
+mPosThrowError::(Positionable a, MonadRErrorC String m) => a -> String -> m b
+mPosThrowError p m = mThrowError $ showPosition p ++ m
+
 instance(Monad m ,MonadError e m) => MonadRErrorC e m where
   mThrowError = throwError
   mCatchError = catchError
@@ -161,3 +164,15 @@ getValue g (h:t) = g h <|> getValue g t
 
 findInStackEnv::(MonadReader StackEnv m) => (Env -> Maybe a) -> m (Maybe a)
 findInStackEnv g = asks (getValue g)
+
+
+class Positionable a where
+  showPosition:: a -> String
+  
+instance Positionable (Maybe (Int,Int)) where
+  showPosition s = case s of
+                     Just (l,c) -> "Line " ++ show l ++ " column " ++ show c
+                     Nothing -> ""
+                     
+instance Positionable () where
+  showPosition _ = ""

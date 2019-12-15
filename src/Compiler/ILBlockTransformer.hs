@@ -26,10 +26,10 @@ transformBlock::Stmt TCU.Type -> Translator (LlvmBlock, [LlvmVar], [(LlvmVar, Ll
 transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
     vLabel <- getVar name
     let (LMLocalVar label _) = vLabel
-    (lmStmts, locals) <- flip runLocal M.empty $ execWriterT $ mapM_ transformStmt stmts 
-    usedVariables <- mapM getVar $ M.keys locals 
-    let toSave = map (\(n, (v, _)) -> (n, v)) $ filter (snd . snd) $ M.toList locals
-    stores <- mapM (\(n, v) -> Store v <$> getVar n) $ toSave
+    (lmStmts, (locals,_)) <- flip runLocal (M.empty, []) $ execWriterT $ mapM_ transformStmt stmts 
+    usedVariables <- mapM getVar $ M.keys $ M.filter (varReads .snd) locals 
+    let toSave = map (\(n, (v, _)) -> (n, v)) $ filter (varWrites . snd . snd) $ M.toList locals
+    stores <-  mapM (\(n, v) -> Store v <$> getVar n) $ toSave
     let finalVals = map (\(Store f v) -> (v,f)) stores
     let (ret: blockS) = reverse lmStmts
     let fBlock = case ret of
@@ -39,7 +39,7 @@ transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
                               }
                 _ -> LlvmBlock {
                                  blockLabel = label,
-                                 blockStmts = (reverse blockS) ++ stores ++ [ret]
+                                 blockStmts =  (reverse blockS) ++ stores ++ [ret]
                                }
     return (fBlock,usedVariables, finalVals)
 

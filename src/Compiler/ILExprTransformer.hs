@@ -8,6 +8,7 @@ import TypeChecker.TypeCheckUtils as TCU
 import Control.Monad
 import Unique (getUnique)
 import Common.ASTUtils (extract)
+import System.IO.Unsafe (unsafePerformIO)
 
 number64::Integer -> LlvmVar
 number64 a = LMLitVar (LMIntLit a i64)
@@ -19,8 +20,9 @@ transformRExpr (ELitInt _ v) = return ( LMLitVar $ LMIntLit v i32)
 transformRExpr ELitTrue{} = return (LMLitVar $ LMIntLit 1 i1)
 transformRExpr ELitFalse{} = return (LMLitVar $ LMIntLit 0 i1)
 
-transformRExpr (EString _ v) = do
-  v <- lift $ lift $ createConstString v
+transformRExpr (EString _ nv) = do
+  v <- lift $ lift $ createConstString nv
+  let _ = unsafePerformIO $ putStrLn nv 
   sAssign i8Ptr (GetElemPtr True (pVarLift v) [number 0, number 0])
 
 transformRExpr (ENull t _) = return $ LMLitVar $ LMNullLit $ valTType t
@@ -53,7 +55,7 @@ transformRExpr (EVar t (Ident name)) = do
         v <- sGetVar name
         let vType = valTType t
         case getVarType v of
-          (LMPointer t) | t == vType -> sAssign vType (Load v) >>= (\v -> sAddLocalVar name v False) >> getLocalVar name
+          (LMPointer t) | t == vType -> sAssign vType (Load v) >>= (\v -> sAddLocalVar name v Read) >> getLocalVar name
           t | t == vType -> return v
           t -> sAssign vType (Cast LM_Bitcast v vType)
 
@@ -95,8 +97,8 @@ transformRExpr e@(EVirtCall rt obj num args) = do
   vTablePtr    <- sAssign (LMPointer i8Ptr) (Load vTablePtrPtr)
   fPtrAddr     <- sAssign (LMPointer i8Ptr) (GetElemPtr True vTablePtr [number num])
   fPtr         <- sAssign i8Ptr (Load fPtrAddr)
-  addStmt $ Assignment fF (Cast LM_Bitcast fPtr (LMPointer fType))
-  addStmt $ (if rt /= TCU.Void then Assignment val else Llvm.Expr) (Call StdCall fF (objPtr: argsV) [])
+  fPtrFin      <- tryLocal fF (Cast LM_Bitcast fPtr (LMPointer fType))
+  addStmt $ (if rt /= TCU.Void then Assignment val else Llvm.Expr) (Call StdCall fPtrFin (objPtr: argsV) [])
   return val
 
 transformRExpr (EApp r (EVar _ (Ident fName)) args) = do

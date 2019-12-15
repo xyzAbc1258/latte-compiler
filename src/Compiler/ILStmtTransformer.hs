@@ -21,10 +21,10 @@ transformStmt (Decl _ t inits) = do
 transformStmt (Ass _ (EVar t (Ident name)) rhs) = do
   v <- transformRExpr rhs
   case (valTType t, getVarType v) of
-    (t1, t2) | t1 == t2 -> sAddLocalVar name v True
+    (t1, t2) | t1 == t2 -> sAddLocalVar name v Write
     (t1, t2) -> do
                   cVar <- sAssign t1 (Cast LM_Bitcast v t1)
-                  sAddLocalVar name cVar True
+                  sAddLocalVar name cVar Write
 
 transformStmt (Ass _ lhs rhs) = do
   ptr <- transformLExpr lhs

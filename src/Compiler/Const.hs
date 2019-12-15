@@ -10,6 +10,7 @@ stdLib = [r|
 %struct._IO_marker = type { %struct._IO_marker*, %struct._IO_FILE*, i32 }
 
 @.str = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+@_str = private unnamed_addr constant [3 x i8] c"%d\00", align 1
 @stdin = external local_unnamed_addr global %struct._IO_FILE*, align 8
 @str = private unnamed_addr constant [14 x i8] c"runtime error\00"
 
@@ -43,7 +44,7 @@ define i32 @readInt() local_unnamed_addr #0 {
   %1 = alloca i32, align 4
   %2 = bitcast i32* %1 to i8*
   call void @llvm.lifetime.start.p0i8(i64 4, i8* nonnull %2) #9
-  %3 = call i32 (i8*, ...) @__isoc99_scanf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str, i64 0, i64 0), i32* nonnull %1)
+  %3 = call i32 (i8*, ...) @__isoc99_scanf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @_str, i64 0, i64 0), i32* nonnull %1)
   %4 = load i32, i32* %1, align 4, !tbaa !2
   call void @llvm.lifetime.end.p0i8(i64 4, i8* nonnull %2) #9
   ret i32 %4

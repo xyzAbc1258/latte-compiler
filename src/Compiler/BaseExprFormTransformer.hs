@@ -63,16 +63,16 @@ toBaseStmtForm (CondElse a cond ift iff) = do
   addStmt $ CondElse a sCond nT nF
 
 
-toBaseStmtForm (While a cond b) = do
-  (v, s) <- listen $ toBaseExpr cond
-  let woDecls = join $ map woDecl s
-  (_, sb) <- catch $ toBaseStmtForm b
-  let nb = case sb of
-              [BStmt t1 (Block t2 c)] -> BStmt t1 (Block t2 (c ++ woDecls))
-              [a] -> BStmt None (Block None (a:woDecls))
-              c -> BStmt None (Block None (c ++ woDecls))
-  mapM_ addStmt s
-  addStmt $ While a v nb
+toBaseStmtForm s@(While a cond b) = addStmt s
+  --(v, s) <- listen $ toBaseExpr cond
+  --let woDecls = join $ map woDecl s
+  --(_, sb) <- catch $ toBaseStmtForm b
+  --let nb = case sb of
+  --            [BStmt t1 (Block t2 c)] -> BStmt t1 (Block t2 (c ++ woDecls))
+  --            [a] -> BStmt None (Block None (a:woDecls))
+  --            c -> BStmt None (Block None (c ++ woDecls))
+  --mapM_ addStmt s
+  --addStmt $ While a v nb
 
 toBaseStmtForm (BStmt a (Block b s)) = do
   nst <- BStmt a . Block b . join . snd <$> mapAndUnzipM (catch . toBaseStmtForm) s

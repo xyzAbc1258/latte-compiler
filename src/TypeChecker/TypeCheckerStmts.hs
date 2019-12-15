@@ -20,10 +20,10 @@ import Control.Lens((&))
 import Data.Tuple(swap)
 import TypeChecker.TypeCheckerExpr
 
-checkBlock::Block a -> TypeChecker (Block TCC.Type)
+checkBlock::(Positionable a) => Block a -> TypeChecker (Block TCC.Type)
 checkBlock (Block _ stmts) = Block TCC.None <$> local (emptyEnv :) (checkStmts stmts)
 
-checkStmts::[Stmt a] -> TypeChecker [Stmt TCC.Type]
+checkStmts::(Positionable a) => [Stmt a] -> TypeChecker [Stmt TCC.Type]
 checkStmts [] = return []
 
 checkStmts (Empty _ : t) = checkStmts t
@@ -31,14 +31,14 @@ checkStmts (Empty _ : t) = checkStmts t
 --checkStmts (BStmt _ (Block _ [s@BStmt{}]) : t) = checkStmts (s:t)
 checkStmts (BStmt _ b@Block{} : t) = (:) <$> (BStmt TCC.None <$> checkBlock b) <*> checkStmts t
 
-checkStmts (Decl _ typ items : t) = do
+checkStmts (Decl pos typ items : t) = do
   let nt = mapType typ
-  when (nt == TCC.Void) $ mThrowError "Cannot declare variable of type void"
+  when (nt == TCC.Void) $ mPosThrowError pos "Cannot declare variable of type void"
   let varNames = [n | Init _ (Ident n) _ <- items] ++ [n | NoInit _ (Ident n) <- items]
   let initExprs = fmap (() <$) [e | Init _ _ e <- items] ++ [defaultValue nt | NoInit{} <- items]
-  unless (unique varNames) $ mThrowError "Variable names has to be unique"
+  unless (unique varNames) $ mPosThrowError pos "Variable names has to be unique"
   alreadyDeclared <- filterM (`existsVariable` Local) varNames
-  unless (null alreadyDeclared) $ mThrowError $ "Variables " ++ show alreadyDeclared ++ " were already declared"
+  unless (null alreadyDeclared) $ mPosThrowError pos $ "Variables " ++ show alreadyDeclared ++ " were already declared"
   exprs <- mapM checkExpr initExprs
   mapM_ (expectsTypeAE nt) exprs
   (mappedNames, modifiers) <- unzip <$> mapM (`declareLocalVariable` nt) varNames
@@ -46,11 +46,11 @@ checkStmts (Decl _ typ items : t) = do
   let newDecl = Decl nt (None <$ typ) (zipWith (Init nt . Ident) mappedNames (map (fmap getType) exprs))
   (newDecl :) <$> local declareNew (checkStmts t)
 
-checkStmts (Ass _ lhs rhs : t) = do
+checkStmts (Ass pos lhs rhs : t) = do
   lhsType <- checkExpr lhs
   rhsType <- checkExpr rhs
   case extract lhsType of
-    RValue _ -> mThrowError "Left side of assignment has to be a lvalue!!"
+    RValue _ -> mPosThrowError pos "Left side of assignment has to be a lvalue!!"
     LValue t -> expectsTypeAE t rhsType
   (Ass None (fmap getType lhsType) (fmap getType rhsType) :) <$> checkStmts t
 
@@ -68,10 +68,10 @@ checkStmts (Ret _ expr : t) = do
   checkStmts t
   return [Ret retType (fmap getType exprType)]
 
-checkStmts (VRet _ : t) = do
+checkStmts (VRet pos : t) = do
   var <- fromJust <$> getInScope Global (varL retVarName)
   let retType = varType var
-  unless (retType == TCC.Void) $ mThrowError "Wrong return type"
+  unless (retType == TCC.Void) $ mPosThrowError pos "Wrong return type"
   checkStmts t
   return [VRet TCC.Void]
 

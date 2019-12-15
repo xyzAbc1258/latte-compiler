@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 module Common.Graphs where
 
 import qualified Data.Set as Set
@@ -51,3 +52,14 @@ hasCycle g = not (Map.null $ _neighbours g) &&
                (let withInEdge = foldl Set.union Set.empty $ map (`neighbours` g) $ Set.toList $ vertices g
                   in let withNoInEdge = vertices g Set.\\ withInEdge in
                     (null withNoInEdge || hasCycle (foldl (flip removeV) g withNoInEdge)))
+
+
+depth::(Ord v) => v -> Graph v -> Map.Map v Int
+depth start g = depthF [(start,0)] Map.empty
+  where depthF [] r = r
+        depthF ((h,hl):t) r =
+          if Map.member h r then depthF t r
+          else let n = Set.toList $ neighbours h g in
+                let nt = t ++ ((,hl+1) <$> n) in
+                let nr = Map.insert h hl r in
+                depthF nt nr
