@@ -116,10 +116,7 @@ untilStabilize f a = do
   else return r
 
 propagatePhiForVar::LlvmVar -> MEProp
-propagatePhiForVar v p = do
-  np <- untilStabilize main p
-  if isDebug then return $ trace ("p: " ++ show np) np
-  else return np
+propagatePhiForVar v = untilStabilize main
   where main p = do
                     let requiring = M.keys $ M.filter id $  _requires p
                     sp <- untilStabilize (simplePropagateVar v) p
@@ -209,9 +206,6 @@ getExportValue v i p = case _exports p M.! i of
                            _ -> do (np, imp) <- getImportValue v i p
                                    return (adjustExport i (Just imp) np, imp)
 
-addFstE::a -> (b,c,d) -> (a,b,c,d)
-addFstE a (b,c,d) = (a,b,c,d)
-
 updateB::Int -> LlvmBlock ->Maybe LlvmVar ->Maybe LlvmVar -> E PropagationInfo
 updateB i nBlock imp exp cp =
   cp {
@@ -228,15 +222,6 @@ findLoad v b =
     Nothing -> Nothing
   where isLoad (Assignment _ (Load v1)) = v1 == v
         isLoad _ = False
-
-cheatNexuses::LlvmVar -> MEProp
-cheatNexuses v p = do
-  let withPreds = M.keys $ _preds $ trace ("cheat: " ++ show p) p
-  let notExportingAndNotImporting = filter (\s -> any isJust ((_exports p M.!) <$> (_preds p M.! s)) && isNothing (_imports p M.! s) && isNothing (_exports p M.! s)) withPreds
-  let forwardWhile = filter (\ s -> (1 ==) $ length $ nub $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s))) notExportingAndNotImporting
-  let mappedForward =M.fromList $  map (\ s -> (s,head $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s)))) forwardWhile
-  let loaded = (\i -> (i, findLoad v (_blocks p M.! i) <|> (mappedForward M.!? i))) <$> notExportingAndNotImporting
-  return $ p & foldl (.) id (map (uncurry addExport) loaded)
 
 getSuccessors::LlvmBlock -> [Unique]
 getSuccessors b =

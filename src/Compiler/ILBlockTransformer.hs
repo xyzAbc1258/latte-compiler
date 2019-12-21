@@ -9,11 +9,12 @@ import Unique (getUnique)
 import Control.Monad.Writer
 import qualified Data.Map as M
 import Compiler.PhiPropagator
+import Compiler.PhiSimplifier
 
 transformFuncBody::[Stmt TCU.Type] -> Translator LlvmBlocks
 transformFuncBody s = do
   blocks <- transformBody s
-  propagatePhi blocks
+  simplifyLlvm <$> propagatePhi blocks
 
 transformBody::[Stmt TCU.Type] -> Translator [(LlvmBlock,[LlvmVar], [(LlvmVar, LlvmVar)])]
 transformBody s = do

@@ -53,7 +53,8 @@ library
       Compiler.ILTransformerCommon
       Compiler.Const
       Compiler.BaseExprFormTransformer,
-      Compiler.PhiPropagator
+      Compiler.PhiPropagator,
+      Compiler.PhiSimplifier
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
