@@ -38,7 +38,7 @@ transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
                               }
                 _ -> LlvmBlock {
                                  blockLabel = label,
-                                 blockStmts = reverse blockS ++ stores ++ [ret] -- ssa to załatwia
+                                 blockStmts = reverse blockS ++ [ret] --reverse blockS ++ stores ++ [ret] -- ssa to załatwia
                                }
     return (fBlock,usedVariables, finalVals)
 

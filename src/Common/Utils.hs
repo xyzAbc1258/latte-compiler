@@ -12,8 +12,20 @@ import Control.Applicative
 
 import Data.List as List
 import Data.List.Split as Ls
+import Data.IORef
+import System.IO.Unsafe
 
 
+isDebugRef::IORef Bool
+isDebugRef = unsafePerformIO $ newIORef True
+{-# NOINLINE isDebugRef #-}
+
+isDebug::Bool
+isDebug = unsafePerformIO $ readIORef isDebugRef
+{-# NOINLINE isDebug #-}
+
+setDebug::Bool -> IO ()
+setDebug = writeIORef isDebugRef
 
 replace from to = intercalate to . Ls.splitOn from
 

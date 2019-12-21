@@ -116,11 +116,14 @@ untilStabilize f a = do
   else return r
 
 propagatePhiForVar::LlvmVar -> MEProp
-propagatePhiForVar v = untilStabilize main
+propagatePhiForVar v p = do
+  np <- untilStabilize main p
+  if isDebug then return $ trace ("p: " ++ show np) np
+  else return np
   where main p = do
                     let requiring = M.keys $ M.filter id $  _requires p
                     sp <- untilStabilize (simplePropagateVar v) p
-                    finalP <- foldM (\p i ->fst <$> fixedGetExp v i p) sp requiring
+                    finalP <- foldM (\p i ->fst <$> getImportValue v i p) sp requiring
                     let allSatisfied = all (isJust . (_imports finalP M.!)) requiring
                     if allSatisfied then return $ finalP & blocks %~ M.map (filterOutAllocStoreFromBlock v)
                     else
@@ -148,59 +151,64 @@ fixSimplePropagation v i nv p =
        updateB i nBlock (Just nv) (Just nv) p & blocks %~ M.map (replaceVars used nv)
 
 
-fixedGetExp::LlvmVar -> Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
-fixedGetExp v = fix (getExportValue v)
+getImportValue::LlvmVar -> Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
+getImportValue v i p = case _imports p M.! i of
+                         Just e -> return (p,e)
+                         _ ->
+                           do
+                              let requiresVar = _requires p M.! i
+                              let preds = _preds p M.! i
+                              varCand <- newVar (getVarType $ pVarLower v)
+                              (fp, sValues) <- foldM (\(cp,l) i -> (\(a,b) -> (a,b:l)) <$> getExportValue v i cp) (adjustExport i (Just varCand) p,[]) preds
+                              let values = zip (reverse preds) sValues
+                              (np, ve) <-  if length (nub $ snd <$> values) == 1 then
+                                               do let newVari = head $ nub $ snd <$> values
+                                                  let block = _blocks fp M.! i
+                                                  let (nBlock,oldV)
+                                                        = if requiresVar then
+                                                            let (b, a, vl) = splitOnLoad v (blockStmts block) in
+                                                              let nAfter = replaceVarsInStmts vl newVari a in
+                                                                (block{blockStmts = b ++ nAfter},vl)
+                                                            else (block, newVari)
+                                                  let upd = updateB i nBlock (Just newVari) (Just newVari) fp
+                                                  let allUpd = upd & blocks %~ M.map (replaceVars oldV newVari)
+                                                  return (allUpd, newVari)
+                                               else
+                                               do let block = _blocks fp M.! i
+                                                  let phiValues
+                                                        = map
+                                                            (\ (i, v) ->
+                                                               (v,
+                                                                flip LMLocalVar LMLabel $ blockLabel $ _blocks fp M.! i))
+                                                            values
+                                                  (nBlock, vl, oldV) <- if requiresVar then
+                                                                    let (b, a, vl) = splitOnLoad v (blockStmts block) in
+                                                                      let assign
+                                                                            = Assignment varCand $
+                                                                                Phi (getVarType vl) phiValues
+                                                                        in
+                                                                        return
+                                                                          (block{blockStmts = [assign] ++ b ++ replaceVarsInStmts vl varCand a}, varCand, vl)
+                                                                    else
+                                                                    do let nVar = varCand
+                                                                       let assign
+                                                                             = Assignment nVar $
+                                                                                 Phi (getVarType nVar) phiValues
+                                                                       return
+                                                                         (block{blockStmts = assign : blockStmts block}, nVar, nVar)
+                                                  return (updateB i nBlock (Just vl) (Just vl) fp & blocks %~ M.map (replaceVars oldV vl), vl)
+                              if varCand /= ve then
+                                return
+                                  (np & blocks %~ M.map (replaceVars varCand ve) & 
+                                    exports %~ M.map (\e -> if e == Just varCand then Just ve else e), ve)
+                              else return (np, ve)
 
-getExportValue::LlvmVar -> (Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)) ->
-                              Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
-getExportValue v f i p = case _exports p M.! i of
-                             Just e -> return (p, e)
-                             _ -> do
-                                     let requiresVar = _requires p M.! i
-                                     let preds = _preds p M.! i
-                                     varCand <- newVar (getVarType $ pVarLower v)
-                                     (fp, sValues) <- foldM (\(cp,l) i -> (\(a,b) -> (a,b:l)) <$> f i cp) (addExport i (Just varCand) p,[]) preds
-                                     let values = zip (reverse preds) sValues
-                                     (np, ve) <-  if length (nub $ snd <$> values) == 1 then
-                                                      do let newVari = head $ nub $ snd <$> values
-                                                         let block = _blocks fp M.! i
-                                                         let (nBlock,oldV)
-                                                               = if requiresVar then
-                                                                   let (b, a, vl) = splitOnLoad v (blockStmts block) in
-                                                                     let nAfter = replaceVarsInStmts vl newVari a in
-                                                                       (block{blockStmts = b ++ nAfter},vl)
-                                                                   else (block, newVari)
-                                                         let upd = updateB i nBlock (Just newVari) (Just newVari) fp
-                                                         let allUpd = upd & blocks %~ M.map (replaceVars oldV newVari)
-                                                         return (allUpd, newVari)
-                                                      else
-                                                      do let block = _blocks fp M.! i
-                                                         let phiValues
-                                                               = map
-                                                                   (\ (i, v) ->
-                                                                      (v,
-                                                                       flip LMLocalVar LMLabel $ blockLabel $ _blocks fp M.! i))
-                                                                   values
-                                                         (nBlock, vl, oldV) <- if requiresVar then
-                                                                           let (b, a, vl) = splitOnLoad v (blockStmts block) in
-                                                                             let assign
-                                                                                   = Assignment varCand $
-                                                                                       Phi (getVarType vl) phiValues
-                                                                               in
-                                                                               return
-                                                                                 (block{blockStmts = [assign] ++ b ++ replaceVarsInStmts vl varCand a}, varCand, vl)
-                                                                           else
-                                                                           do let nVar = varCand
-                                                                              let assign
-                                                                                    = Assignment nVar $
-                                                                                        Phi (getVarType nVar) phiValues
-                                                                              return
-                                                                                (block{blockStmts = assign : blockStmts block}, nVar, nVar)
-                                                         return (updateB i nBlock (Just vl) (Just vl) fp & blocks %~ M.map (replaceVars oldV vl), vl)
-                                     if varCand /= ve then
-                                       return
-                                         (np & blocks %~ M.map (replaceVars varCand ve) & exports %~ M.map (\e -> if e == Just varCand then Just ve else e), ve)
-                                     else return (np, ve)
+getExportValue::LlvmVar -> Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
+getExportValue v i p = case _exports p M.! i of
+                           Just e -> return (p, e)
+                           _ -> do (np, imp) <- getImportValue v i p
+                                   return (adjustExport i (Just imp) np, imp)
+
 addFstE::a -> (b,c,d) -> (a,b,c,d)
 addFstE a (b,c,d) = (a,b,c,d)
 

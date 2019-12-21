@@ -19,9 +19,10 @@ import Compiler.BlockGenerator
 import TypeChecker.TypeCheckUtils as TCU
 import Compiler.Const
 import Compiler.BaseExprFormTransformer
-
+import Common.Utils
 import ErrM
 import Compiler.ILTranformer
+import Data.IORef (writeIORef)
 
 type ParseFun a = [Token] -> Err a
 
@@ -29,7 +30,7 @@ data Flags = OutF | None
 myLLexer = myLexer
 
 runFile ::(Positionable a) => ParseFun (Program a) -> FilePath -> IO ()
-runFile p f = putStrLn f >> readFile f >>= run f p
+runFile p f = readFile f >>= run f p
 
 run ::(Positionable a) =>  FilePath -> ParseFun (Program a) -> String -> IO ()
 run f p s = let ts = myLLexer s in case p ts of
@@ -50,7 +51,6 @@ run f p s = let ts = myLLexer s in case p ts of
 compileAndSaveTree :: FilePath -> Program TCU.Type -> IO ()
 compileAndSaveTree s tree
  = do
-      putStrLn s
       let baseForm = toBaseForm tree
       let blocks = toBlockStructure baseForm
       writeFile (addExtension s "block") $ printTree blocks
@@ -72,5 +72,5 @@ main = do
   args <- getArgs
   case args of
     [] -> return () --getContents >>= run 2 pProgram
-    ("-b": fs) -> mapM_ (runFile pProgram) fs
+    ("-d": fs) -> setDebug True >>  mapM_ (runFile pProgram) fs
     fs -> mapM_ (runFile pProgram) fs
