@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 module Compiler.ILBlockTransformer where
 
 import Llvm
@@ -29,7 +28,7 @@ transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
     (lmStmts, (locals,_)) <- flip runLocal (M.empty, []) $ execWriterT $ mapM_ transformStmt stmts 
     usedVariables <- mapM getVar $ M.keys $ M.filter (varReads .snd) locals 
     let toSave = map (\(n, (v, _)) -> (n, v)) $ filter (varWrites . snd . snd) $ M.toList locals
-    stores <-  mapM (\(n, v) -> Store v <$> getVar n) $ toSave
+    stores <-  mapM (\(n, v) -> Store v <$> getVar n) toSave
     let finalVals = map (\(Store f v) -> (v,f)) stores
     let (ret: blockS) = reverse lmStmts
     let fBlock = case ret of
@@ -39,7 +38,7 @@ transformBlock (NamedBStmt _ (Ident name) (Block _ stmts)) = do
                               }
                 _ -> LlvmBlock {
                                  blockLabel = label,
-                                 blockStmts =  (reverse blockS) ++ stores ++ [ret]
+                                 blockStmts = reverse blockS ++ stores ++ [ret] -- ssa to załatwia
                                }
     return (fBlock,usedVariables, finalVals)
 

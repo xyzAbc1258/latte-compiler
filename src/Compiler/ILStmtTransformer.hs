@@ -14,7 +14,7 @@ transformStmt (Decl _ t inits) = do
   let varNames = map ((`LMNLocalVar` LMPointer llvmType) . mkfs) names
   zipWithM_ sAddVar names varNames
   let declarations = map (`Assignment` Alloca llvmType 1) varNames
-  mapM_ addStmt declarations
+  mapM_ addStmt declarations --ssa sprawia że to nie jest potrzebne
   let assigns = [Ass None (EVar (mapType t) n) e | Init _ n e <- inits]
   mapM_ transformStmt assigns
 

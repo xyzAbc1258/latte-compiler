@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 module Compiler.BlockGenerator where
 
 import AbsLatte
@@ -18,7 +17,7 @@ genLabel:: LabelGen Ident
 genLabel = do
   c <- get
   S.modify (1 +)
-  return $ Ident $ "label_" ++ (show c)
+  return $ Ident $ "label_" ++ show c
 
 toBlockStructure::(Defaultable a) => Program a -> Program a
 toBlockStructure = (`evalState` 0) . ASTM.modify splitStmtsToBlocksA
@@ -52,7 +51,7 @@ compactBlocks s =
     let (Just ind) = List.findIndex (\(NamedBStmt _ na _) -> na == n) s in
     let (NamedBStmt _ _ (Block _ hb), NamedBStmt v nn (Block vb hs)) = (findByName h s, findByName n s) in
     let rest = filter (\(NamedBStmt _ r _) -> r /= n && r /= h) s in
-    let nBlock = NamedBStmt v n (Block vb $ (reverse $ tail $ reverse hs) ++ hb) in
+    let nBlock = NamedBStmt v n (Block vb $ init hs ++ hb) in
     let (f,r) = List.splitAt ind rest in
     compactBlocks (f ++ [nBlock] ++ r) -- pojedynczo żeby nie napsuć :)
 

@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 module Compiler.ILTranformer where
 
 import Llvm
@@ -28,12 +27,12 @@ transformProgram::Program TCU.Type -> Translator LlvmModule
 transformProgram (Program a topdefs) = do
   -- TODO better
  let dec = map ((\(FunctionInfo n r a) ->  FnDef () (mapTypeBack r) (Ident n) (map ((\t -> Arg () t (Ident "s") ) . mapTypeBack) a) (Block ()[])). snd) (M.toList $ _functions $ head TCC.baseStack)
- mapM_ declareFunc (map (None <$) dec)
+ mapM_ (declareFunc . (None <$)) dec
  let aliases = [transformAlias s | s@Struct{} <- topdefs]
  varrays <- mapM transformVirtArray [v | v@VirtArray{} <- topdefs]
  mapM_ declareFunc [f | f@FnDef{} <- topdefs]
  funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
- ss <- M.toList . fst <$> get
+ ss <- gets (M.toList . fst)
  let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private]
  return $ LlvmModule {
   modComments = [],

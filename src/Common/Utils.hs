@@ -14,6 +14,7 @@ import Data.List as List
 import Data.List.Split as Ls
 
 
+
 replace from to = intercalate to . Ls.splitOn from
 
 type E a = a -> a
@@ -49,3 +50,6 @@ groupByFirst l =
   let keys = nub $ map fst l in
   let p = map (\k -> (k, map snd $ filter (( == k) . fst) l)) keys in
   p
+
+flatten::(Foldable t, Foldable f) => t (f a) -> [a]
+flatten = foldMap Fold.toList

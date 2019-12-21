@@ -1,5 +1,10 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE RankNTypes #-}
 module Compiler.PhiPropagator where
 
 import Llvm
@@ -10,10 +15,24 @@ import qualified Data.Map as M
 import Unique (Unique)
 import Compiler.ILTransformerCommon
 import Data.Maybe
-import Control.Applicative((<|>))
+import Control.Applicative((<|>), Alternative)
 import System.IO.Unsafe (unsafePerformIO)
 import Debug.Trace (traceM, trace)
 import Outputable (showSDocUnsafe)
+import Control.Monad.Fix
+import Control.Lens
+import Data.Function
+
+instance Show LlvmBlock where
+  show b = show (blockLabel b)
+
+instance Show LlvmVar where
+  show v = showSDocUnsafe $ ppName v
+
+instance Eq LlvmBlock where
+  a == b = (blockLabel a == blockLabel b) && (blockStmts a == blockStmts b)
+  a /= b = (blockLabel a /= blockLabel b) || (blockStmts a /= blockStmts b)
+
 
 data PropagationInfo = PropagationInfo {
       _entry :: Int,
@@ -25,13 +44,15 @@ data PropagationInfo = PropagationInfo {
       _requires:: M.Map Int Bool
     } deriving (Eq, Show)
 
-instance Eq LlvmBlock where
-  a == b = (blockLabel a == blockLabel b) && (blockStmts a == blockStmts b)
-  a /= b = (blockLabel a /= blockLabel b) || (blockStmts a /= blockStmts b)
+$(makeLenses ''PropagationInfo)
+
+type ME a = a -> Translator a
+type MEProp = ME PropagationInfo
 
 fst3 (x,_,_) = x
 snd3 (_,x,_) = x
 thd3 (_,_,x) = x
+
 
 getFirst::(a -> Bool) -> [a] -> Maybe a
 getFirst _ [] = Nothing
@@ -43,7 +64,7 @@ getFirstSure f s = let (Just r) = getFirst f s in r
 splitOnLoad::LlvmVar -> [LlvmStatement] -> ([LlvmStatement], [LlvmStatement], LlvmVar)
 splitOnLoad v l =
   let spl = splitOn isLoad l in
-  let splitted = trace ("splitted" ++ (show $ map length spl)) spl in
+  let splitted = spl in
   if length splitted == 2 then
     let [[Assignment v _], a] = splitted in
     ([],a, v)
@@ -61,12 +82,6 @@ filterOutAllocStore v1 (Assignment v2 Alloca{}) = v1 /= v2
 filterOutAllocStore v1 (Store _ v2) = v1 /= v2
 filterOutAllocStore _ _ = True
 
-instance Show LlvmBlock where
-  show b = show (blockLabel b)
-
-instance Show LlvmVar where
-  show v = showSDocUnsafe $ ppName v
-
 propagatePhi::[(LlvmBlock, [LlvmVar], [(LlvmVar, LlvmVar)])] -> Translator LlvmBlocks
 propagatePhi l = do
   let allToPropagate = nub $ join $ map (\(_,v,_) -> v) l
@@ -81,7 +96,7 @@ propagatePhi l = do
   let empty = PropagationInfo {
     _entry = 1,
     _blocks = mapped,
-    _preds = M.map (\l -> filter (\e -> not $ M.member e withNoPred) l) $ preds,
+    _preds = M.map (filter (\ e -> not $ M.member e withNoPred)) preds,
     _succs = M.filterWithKey (\k _ -> M.member k preds || k == 1) $ M.fromList succs,
     _imports = M.empty,
     _exports = M.empty,
@@ -94,26 +109,25 @@ propagatePhi l = do
             prop {_requires = requires, _exports = exports, _imports = M.map (const Nothing) requires}
 
 
-untilStabilize::(Eq a ,Monad m) => (a -> m a) -> a -> m a
+untilStabilize::(Eq a ,Monad m) => (a -> m a) -> a -> m a -- poor man's fix :)
 untilStabilize f a = do
   r <- f a
   if r /= a then untilStabilize f r
   else return r
 
-propagatePhiForVar::LlvmVar -> PropagationInfo -> Translator PropagationInfo
-propagatePhiForVar v p= untilStabilize main p
-  where helpP p = do
-                    r <- untilStabilize (simplePropagateVar v) p
-                    untilStabilize (multiPredPropagation v) r
-        main p = do
-                    r <- untilStabilize helpP p
-                    let requiring = M.keys $ M.filter id $  _requires r
-                    let allSatisfied = all (isJust . (_imports r M.!)) requiring
-                    if allSatisfied then return $ r {_blocks = M.map (filterOutAllocStoreFromBlock v) $ _blocks r}
-                    else cheatNexuses v r
+propagatePhiForVar::LlvmVar -> MEProp
+propagatePhiForVar v = untilStabilize main
+  where main p = do
+                    let requiring = M.keys $ M.filter id $  _requires p
+                    sp <- untilStabilize (simplePropagateVar v) p
+                    finalP <- foldM (\p i ->fst <$> fixedGetExp v i p) sp requiring
+                    let allSatisfied = all (isJust . (_imports finalP M.!)) requiring
+                    if allSatisfied then return $ finalP & blocks %~ M.map (filterOutAllocStoreFromBlock v)
+                    else
+                      return finalP
                            
 
-simplePropagateVar::LlvmVar -> PropagationInfo -> Translator PropagationInfo
+simplePropagateVar::LlvmVar -> MEProp
 simplePropagateVar v p = do
   let canPropagate = M.keys $ M.filter isJust $ _exports p
   let withSinglePred = M.map head $  M.filter (( == 1) . length) $ _preds p
@@ -123,59 +137,80 @@ simplePropagateVar v p = do
   let np = foldl (\cp (i,nv) -> fixSimplePropagation v i nv cp) p valPropagation
   return np
 
-fixSimplePropagation::LlvmVar -> Int -> LlvmVar -> PropagationInfo -> PropagationInfo
+fixSimplePropagation::LlvmVar -> Int -> LlvmVar -> E PropagationInfo
 fixSimplePropagation v i nv p =
   let doesIrequire = _requires p M.! i in
   if not doesIrequire then
-    p {_imports = M.insert i (Just nv) $ _imports p, _exports = M.adjust (<|> Just nv) i $ _exports p}
+    p & addToMap imports i (Just nv) & adjustMap exports i (Just nv)
   else let block = _blocks p M.! i in
        let (b,f, used) = splitOnLoad v $ blockStmts block in
        let nBlock = block {blockStmts = b ++ replaceVarsInStmts used nv f } in
-       p {
-          _blocks = M.adjust (const nBlock) i $ _blocks p,
-          _imports = M.insert i (Just nv) $ _imports p,
-          _exports = M.adjust (<|> Just nv) i $ _exports p
-       }
+       updateB i nBlock (Just nv) (Just nv) p & blocks %~ M.map (replaceVars used nv)
 
-multiPredPropagation::LlvmVar -> PropagationInfo -> Translator PropagationInfo
-multiPredPropagation v p = do
-  let withPreds = M.keys $ _preds p
-  let requireWithPreds = filter (isNothing . (_imports p M.!)) withPreds
-  let allPredsHas = filter (\i -> all (isJust . (_exports p M.!)) $ _preds p M.! i ) requireWithPreds
-  foldl (\cp i -> cp >>= (addPhi v i)) (return p) allPredsHas
-  where addPhi v i cp = do
-          let preds = _preds cp M.! i
-          let values = map (\pi -> (pi, fromJust $ _exports cp M.! pi)) preds
-          let requiresVar = _requires cp M.! i
-          if (length $ nub $ snd <$> values) == 1 then do
-            let newVari = head $ nub $ snd <$> values
-            let block = _blocks cp M.! i
-            let nBlock = if requiresVar then
-                                          let (b,a, vl) = splitOnLoad v (blockStmts block) in
-                                          let nAfter = replaceVarsInStmts vl newVari a in
-                                          block {blockStmts = b ++ nAfter}
-                                        else block
-            return $ cp {
-              _blocks = M.adjust (const nBlock) i $ _blocks cp,
-              _imports = M.insert i (Just newVari) $ _imports cp,
-              _exports = M.adjust ( <|> Just newVari) i $ _exports cp
-            }
-          else do
-            let block = _blocks cp M.! i
-            let phiValues = map (\(i,v) -> (v,flip LMLocalVar LMLabel $ blockLabel (_blocks cp M.! i))) values
-            (nBlock,vl) <- if requiresVar then
-                                          let (b,a, vl) = splitOnLoad v (blockStmts block) in
-                                          let assign = Assignment vl $ Phi (getVarType vl) phiValues in
-                                          return (block {blockStmts = [assign] ++  b ++ a}, vl)
-                                        else do
-                                          nVar <- newVar $ getVarType $ snd $ head values
-                                          let assign = Assignment nVar $ Phi (getVarType nVar) phiValues
-                                          return (block {blockStmts = assign : blockStmts block}, nVar)
-            return $ cp {
-             _blocks = M.adjust (const nBlock) i $ _blocks cp,
-             _imports = M.insert i (Just vl) $ _imports cp,
-             _exports = M.adjust ( <|> Just vl) i $ _exports cp
-            }
+
+fixedGetExp::LlvmVar -> Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
+fixedGetExp v = fix (getExportValue v)
+
+getExportValue::LlvmVar -> (Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)) ->
+                              Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)
+getExportValue v f i p = case _exports p M.! i of
+                             Just e -> return (p, e)
+                             _ -> do
+                                     let requiresVar = _requires p M.! i
+                                     let preds = _preds p M.! i
+                                     varCand <- newVar (getVarType $ pVarLower v)
+                                     (fp, sValues) <- foldM (\(cp,l) i -> (\(a,b) -> (a,b:l)) <$> f i cp) (addExport i (Just varCand) p,[]) preds
+                                     let values = zip (reverse preds) sValues
+                                     (np, ve) <-  if length (nub $ snd <$> values) == 1 then
+                                                      do let newVari = head $ nub $ snd <$> values
+                                                         let block = _blocks fp M.! i
+                                                         let (nBlock,oldV)
+                                                               = if requiresVar then
+                                                                   let (b, a, vl) = splitOnLoad v (blockStmts block) in
+                                                                     let nAfter = replaceVarsInStmts vl newVari a in
+                                                                       (block{blockStmts = b ++ nAfter},vl)
+                                                                   else (block, newVari)
+                                                         let upd = updateB i nBlock (Just newVari) (Just newVari) fp
+                                                         let allUpd = upd & blocks %~ M.map (replaceVars oldV newVari)
+                                                         return (allUpd, newVari)
+                                                      else
+                                                      do let block = _blocks fp M.! i
+                                                         let phiValues
+                                                               = map
+                                                                   (\ (i, v) ->
+                                                                      (v,
+                                                                       flip LMLocalVar LMLabel $ blockLabel $ _blocks fp M.! i))
+                                                                   values
+                                                         (nBlock, vl, oldV) <- if requiresVar then
+                                                                           let (b, a, vl) = splitOnLoad v (blockStmts block) in
+                                                                             let assign
+                                                                                   = Assignment varCand $
+                                                                                       Phi (getVarType vl) phiValues
+                                                                               in
+                                                                               return
+                                                                                 (block{blockStmts = [assign] ++ b ++ replaceVarsInStmts vl varCand a}, varCand, vl)
+                                                                           else
+                                                                           do let nVar = varCand
+                                                                              let assign
+                                                                                    = Assignment nVar $
+                                                                                        Phi (getVarType nVar) phiValues
+                                                                              return
+                                                                                (block{blockStmts = assign : blockStmts block}, nVar, nVar)
+                                                         return (updateB i nBlock (Just vl) (Just vl) fp & blocks %~ M.map (replaceVars oldV vl), vl)
+                                     if varCand /= ve then
+                                       return
+                                         (np & blocks %~ M.map (replaceVars varCand ve) & exports %~ M.map (\e -> if e == Just varCand then Just ve else e), ve)
+                                     else return (np, ve)
+addFstE::a -> (b,c,d) -> (a,b,c,d)
+addFstE a (b,c,d) = (a,b,c,d)
+
+updateB::Int -> LlvmBlock ->Maybe LlvmVar ->Maybe LlvmVar -> E PropagationInfo
+updateB i nBlock imp exp cp =
+  cp {
+      _blocks = M.adjust (const nBlock) i $ _blocks cp,
+      _imports = M.insert i imp $ _imports cp,
+      _exports = M.adjust ( <|> exp) i $ _exports cp
+    }
 
 findLoad::LlvmVar -> LlvmBlock -> Maybe LlvmVar
 findLoad v b =
@@ -186,30 +221,14 @@ findLoad v b =
   where isLoad (Assignment _ (Load v1)) = v1 == v
         isLoad _ = False
 
-cheatNexuses::LlvmVar -> PropagationInfo -> Translator PropagationInfo
+cheatNexuses::LlvmVar -> MEProp
 cheatNexuses v p = do
   let withPreds = M.keys $ _preds $ trace ("cheat: " ++ show p) p
   let notExportingAndNotImporting = filter (\s -> any isJust ((_exports p M.!) <$> (_preds p M.! s)) && isNothing (_imports p M.! s) && isNothing (_exports p M.! s)) withPreds
   let forwardWhile = filter (\ s -> (1 ==) $ length $ nub $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s))) notExportingAndNotImporting
   let mappedForward =M.fromList $  map (\ s -> (s,head $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s)))) forwardWhile
   let loaded = (\i -> (i, findLoad v (_blocks p M.! i) <|> (mappedForward M.!? i))) <$> notExportingAndNotImporting
-  let exports = _exports p
-  let nExp1 = foldl (\c (i, v) -> M.insert i v c) exports loaded
-  let nExp = trace ("cheating: " ++ show nExp1) nExp1
-  return p {_exports = nExp}
-
-
-cheatNexuses2::LlvmVar -> PropagationInfo -> Translator PropagationInfo
-cheatNexuses2 v p = do
-  let withPreds = M.keys $ _preds $ trace ("cheat: " ++ show p) p
-  let notExportingAndNotImporting = filter (\s -> any isJust ((_exports p M.!) <$> (_preds p M.! s)) && isNothing (_imports p M.! s) && isNothing (_exports p M.! s)) withPreds
-  let forwardWhile = filter (\ s -> (1 <) $ length $ nub $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s))) notExportingAndNotImporting
-  let mappedForward =M.fromList $  map (\ s -> (s,head $ map fromJust $ filter isJust ((_exports p M.!) <$> (_preds p M.! s)))) forwardWhile
-  let loaded = (\i -> (i, findLoad v (_blocks p M.! i) <|> (mappedForward M.!? i))) <$> notExportingAndNotImporting
-  let exports = _exports p
-  let nExp1 = foldl (\c (i, v) -> M.insert i v c) exports loaded
-  let nExp = trace ("cheating: " ++ show nExp1) nExp1
-  return p {_exports = nExp}
+  return $ p & foldl (.) id (map (uncurry addExport) loaded)
 
 getSuccessors::LlvmBlock -> [Unique]
 getSuccessors b =
@@ -218,3 +237,17 @@ getSuccessors b =
     Return{} -> []
     Branch (LMLocalVar r _) -> [r]
     BranchIf _ (LMLocalVar r1 _) (LMLocalVar r2 _) -> [r1, r2]
+
+
+adjustMap::(Ord k, Alternative v) => Lens' PropagationInfo (M.Map k (v a)) -> k -> v a -> E PropagationInfo
+adjustMap l i v = over l (M.adjust (<|> v) i)
+
+adjustExport::Int -> Maybe LlvmVar -> E PropagationInfo
+adjustExport = adjustMap exports
+
+addExport::Int->Maybe LlvmVar -> E PropagationInfo
+addExport = addToMap exports
+
+addToMap::(Ord k) => Lens' PropagationInfo (M.Map k v) -> k -> v -> E PropagationInfo
+addToMap l i v = over l (M.insert i v)
+
