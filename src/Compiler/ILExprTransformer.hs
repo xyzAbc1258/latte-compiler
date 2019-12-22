@@ -22,7 +22,6 @@ transformRExpr ELitFalse{} = return (LMLitVar $ LMIntLit 0 i1)
 
 transformRExpr (EString _ nv) = do
   v <- lift $ lift $ createConstString nv
-  let _ = unsafePerformIO $ putStrLn nv 
   sAssign i8Ptr (GetElemPtr True (pVarLift v) [number 0, number 0])
 
 transformRExpr (ENull t _) = return $ LMLitVar $ LMNullLit $ valTType t
@@ -70,7 +69,7 @@ transformRExpr e@(EArrAcc t a ind) = do
 transformRExpr (ENewObj t@(TCU.Class name) _) = do
   let pt@(LMPointer nt) = valTType t
   virtArrGlobal <- sGetVar $ "virt_" ++ name
-  let virtArrGlobalPtr = pVarLift virtArrGlobal
+  let virtArrGlobalPtr = pVarLift virtArrGlobal --TODO Czy to nie powinno być w jednej funkcji zamiast za każdym razem powtarzać ?
   sizeCalcOne      <- calcStructSize nt
   tmp1             <- sAssign i8Ptr(Call StdCall malloc [sizeCalcOne] [])
   addStmt $           callMemset tmp1 sizeCalcOne
@@ -101,12 +100,17 @@ transformRExpr e@(EVirtCall rt obj num args) = do
   addStmt $ (if rt /= TCU.Void then Assignment val else Llvm.Expr) (Call StdCall fPtrFin (objPtr: argsV) [])
   return val
 
-transformRExpr (EApp r (EVar _ (Ident fName)) args) = do
+transformRExpr (EApp r (EVar fType (Ident fName)) args) = do
   vs <- mapM transformRExpr args
   fVar <- sGetVar fName
   nValue <- sNewVar $ valTType r
-  addStmt $ (if r == TCU.Void then Llvm.Expr else Assignment nValue) (Call StdCall fVar vs [])
+  let (TCU.Fun _ argsExpTypes) = fType
+  let realTypes = map extract args
+  adjusted <- sequence $ zipWith3 toCorrectType realTypes argsExpTypes vs
+  addStmt $ (if r == TCU.Void then Llvm.Expr else Assignment nValue) (Call StdCall fVar adjusted [])
   return nValue
+  where toCorrectType t exp v | t == exp = return v
+        toCorrectType t exp v = sAssign (valTType exp) (Cast LM_Bitcast v (valTType exp)) -- może wskazywac na podklasę
 
 transformRExpr e = error $ "Not supported " ++ show e
 

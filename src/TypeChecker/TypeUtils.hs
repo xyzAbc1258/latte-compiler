@@ -13,6 +13,7 @@ import Control.Monad.Reader
 import Data.Maybe
 import Control.Applicative((<|>))
 import Control.Monad.Except
+import Common.Utils
 
 
 primitives = [Int, Str, Bool, Void]
@@ -33,7 +34,7 @@ sameAlloc _ _ = False
 inheritanceList::(MonadReader StackEnv m) => String -> m [String]
 inheritanceList s = do
   ci <- fromJust <$> findInStackEnv ((M.!? s) . _classInfos)
-  rest <- fromJust (fmap inheritanceList (_baseClass ci) <|> Just (return []))
+  rest <- maybeM [] inheritanceList (_baseClass ci)
   return $ _name ci : rest
 
 

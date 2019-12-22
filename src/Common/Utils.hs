@@ -40,7 +40,7 @@ mapStateType::(Monad m) => Lens' a b -> StateT b m r -> StateT a m r
 mapStateType lens ms = StateT $ \s -> runStateT ms (s ^. lens) >>= (\(r, f) -> return (r, set lens f s))
 
 orElse::Maybe a -> a -> a
-orElse m e = fromJust $ m <|> Just e
+orElse m e = fromMaybe e m
 
 liftEndo:: Lens' a b -> E b -> E a
 liftEndo l f x = set' l (f $ x ^. l) x
@@ -75,5 +75,8 @@ untilStabilizeM f a = do
   if r /= a then untilStabilizeM f r
   else return r
 
-untilStabilize::(Eq a) => E a -> E a 
+untilStabilize::(Eq a) => E a -> E a
 untilStabilize f = runIdentity . untilStabilizeM (Identity . f)
+
+maybeM::(Monad m) => b -> (a -> m b) -> Maybe a -> m b
+maybeM def = maybe (return def)

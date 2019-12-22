@@ -45,8 +45,6 @@ baseStack = [
     }
   ]
 
-$(makeLenses ''ClassInfo)
-
 classI ::String -> Lens' Env (Maybe ClassInfo)
 classI a = classInfos . at a
 
@@ -69,7 +67,6 @@ withVariable name typ = (current . varL name) ?~ LocalVar name typ
 mapVariable::String -> Integer -> StackEnv -> StackEnv
 mapVariable name counter = (current . varMappingL name) ?~ ("__v_" ++ show counter)
 
-
 declareLocalVariable::(MonadReader StackEnv m, MonadState Integer m) => String -> Type -> m (String, StackEnv -> StackEnv)
 declareLocalVariable name typ = do
                               currentC <- get
@@ -89,6 +86,15 @@ withFunction name fInfo = (current . functionI name) ?~ fInfo
 
 withClass::String -> ClassInfo -> StackEnv -> StackEnv
 withClass name cInfo = (current . classI name) ?~ cInfo
+
+markAsOverriden::String -> String -> StackEnv -> StackEnv
+markAsOverriden method cName s = 
+  let ci = fromJust $ s ^. (current . classI cName) in
+  let nc = asOverriden method ci in
+  let ns = withClass cName nc s in
+  case _baseClass nc of
+    Nothing -> ns
+    Just b -> markAsOverriden method b ns
 
 getInScope::(MonadReader StackEnv m) =>Scope -> Lens' Env (Maybe a) -> m (Maybe a)
 getInScope Local l = view $ current . l
@@ -120,4 +126,7 @@ toFuncDef (A.FnDef _ rType (A.Ident name) args _) =
   FunctionInfo name (mapType rType) $ map mapType [t | A.Arg _ t _ <- args]
 
 typeExists::Type -> TypeChecker ()
-typeExists t = isTypeDefined t >>= (\b -> unless b $ mThrowError $ "Type " ++ show t ++ "is not defined")
+typeExists t = isTypeDefined t >>= (\b -> unless b $ throwPosError $ "Type " ++ show t ++ "is not defined")
+
+wrongArgsNumber::Int -> Int -> TypeChecker b
+wrongArgsNumber exp got = throwPosError $ "Wrong number of arguments. Expected: " ++ show exp ++ " got: " ++ show got

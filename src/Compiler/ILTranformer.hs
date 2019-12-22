@@ -25,27 +25,36 @@ toDoc = ppLlvmModule . (`evalState` (M.empty,0)) . transformProgram
 
 transformProgram::Program TCU.Type -> Translator LlvmModule
 transformProgram (Program a topdefs) = do
-  -- TODO better
- let dec = map ((\(FunctionInfo n r a) ->  FnDef () (mapTypeBack r) (Ident n) (map ((\t -> Arg () t (Ident "s") ) . mapTypeBack) a) (Block ()[])). snd) (M.toList $ _functions $ head TCC.baseStack)
- mapM_ (declareFunc . (None <$)) dec
- let aliases = [transformAlias s | s@Struct{} <- topdefs]
- varrays <- mapM transformVirtArray [v | v@VirtArray{} <- topdefs]
- mapM_ declareFunc [f | f@FnDef{} <- topdefs]
- funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
- ss <- gets (M.toList . fst)
- let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private]
- return $ LlvmModule {
-  modComments = [],
-  modAliases = aliases,
-  modMeta = [],
-  modGlobals = varrays ++ sConsts,
-  modFwdDecls = [],
-  modFuncs = funcs
-}
+  declareStandardFunctions
+  let aliases = [transformAlias s | s@Struct{} <- topdefs]
+  varrays <- mapM transformVirtArray [v | v@VirtArray{} <- topdefs]
+  mapM_ declareFunc [f | f@FnDef{} <- topdefs]
+  funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
+  ss <- gets (M.toList . fst)
+  -- dziwny brak obsługi nowych linii :/
+  let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private]
+  return $ LlvmModule {
+    modComments = [],
+    modAliases = aliases,
+    modMeta = [],
+    modGlobals = varrays ++ sConsts,
+    modFwdDecls = [],
+    modFuncs = funcs
+  } 
 
+declareStandardFunctions::Translator ()
+declareStandardFunctions = do
+  let stdLib = fmap snd $ M.toList $ _functions $ head TCC.baseStack
+  let mtb = mapTypeBack
+  let createDummyArg argType = Arg () argType (Ident "dummyName")
+  let emptyBlock = Block ()[]
+  let createFuncDecl rType name = FnDef () rType (Ident name)
+  let createFuncDeclFromTCUTypes r n a = createFuncDecl (mtb r) n (map (createDummyArg . mtb) a) emptyBlock
+  let declarations = map (\ (FunctionInfo n r a) -> createFuncDeclFromTCUTypes r n a) stdLib
+  mapM_ (declareFunc . (None <$)) declarations
 
 transformAlias::TopDef TCU.Type -> LlvmAlias
-transformAlias (Struct _ (Ident name) types) = (mkFastString name, LMStructU $ (LMPointer i8Ptr :) $ map valType types)
+transformAlias (Struct _ (Ident name) types) = (mkFastString name, LMStruct $ (LMPointer i8Ptr :) $ map valType types)
 
 declareFunc::TopDef TCU.Type -> Translator ()
 declareFunc (FnDef _ rt (Ident fName) args body) = do

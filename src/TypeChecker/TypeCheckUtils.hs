@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module TypeChecker.TypeCheckUtils where
 
@@ -17,6 +18,8 @@ import Control.Monad.State
 import Control.Lens
 import Control.Applicative((<|>), Alternative)
 import Common.Utils(E, Defaultable, getDefault)
+import qualified Data.Set as S
+
 
 data Type = Int | Str | Bool | Void | Class String | Fun Type [Type] | Array Type | None deriving(Eq, Show)
 
@@ -78,40 +81,54 @@ emptyVTable = VTable {_fNameMapping = M.empty, _fMapping = M.empty}
 
 addMapping::String->String-> E VTable
 addMapping fName cName vtable =
-  let fWithClassName = cName ++ "_" ++ fName
-    in let currentfNameMapping = _fNameMapping vtable
-      in let newFNameMapping = M.alter (\ s -> s <|> (Just $ fromIntegral (M.size currentfNameMapping))) fName currentfNameMapping
-        in let newFMapping = M.insert (newFNameMapping M.! fName) (fWithClassName, cName) $ _fMapping vtable
-          in VTable {_fNameMapping = newFNameMapping, _fMapping = newFMapping}
+  let fWithClassName = cName ++ "_" ++ fName in
+  let currentfNameMapping = _fNameMapping vtable in
+  let newFNameMapping = M.alter (\ s -> s <|> (Just $ fromIntegral (M.size currentfNameMapping))) fName currentfNameMapping in
+  let newFMapping = M.insert (newFNameMapping M.! fName) (fWithClassName, cName) $ _fMapping vtable in
+  VTable {_fNameMapping = newFNameMapping, _fMapping = newFMapping}
 
 data ClassInfo = ClassInfo {
   _name :: String,
   _baseClass :: Maybe String,
   _components :: M.Map String Type,
   _vtable :: VTable,
-  _varNameMapping :: M.Map String Integer
+  _varNameMapping :: M.Map String Integer,
+  _wasOverriden :: S.Set String
 } deriving (Show)
 
+
+
+$(makeLenses ''ClassInfo)
+
+wasFOverriden::String -> ClassInfo -> Bool
+wasFOverriden n c = S.member n $ _wasOverriden c 
 
 createClassInfo::String -> ClassInfo
 createClassInfo x = ClassInfo { _name = x, 
                                 _baseClass = Nothing, 
                                 _components = M.empty, 
                                 _vtable = emptyVTable, 
-                                _varNameMapping = M.empty
+                                _varNameMapping = M.empty,
+                                _wasOverriden = S.empty
                                 }
 
+
+asOverriden::String -> E ClassInfo
+asOverriden n = wasOverriden %~ S.insert n
+
 addVariable::String -> Type -> E ClassInfo
-addVariable name vType classInfo = let currComponents = _components classInfo 
-                                    in let current = _varNameMapping classInfo
-                                     in let new = M.alter (\s -> s <|> (Just $ fromIntegral (M.size current +1))) name current
-                                      in classInfo {_varNameMapping = new, _components = M.insert name vType currComponents}
+addVariable name vType classInfo =
+  let currComponents = _components classInfo in
+  let current = _varNameMapping classInfo in
+  let new = M.alter (\s -> s <|> (Just $ fromIntegral (M.size current +1))) name current in
+  classInfo {_varNameMapping = new, _components = M.insert name vType currComponents}
 
 addFunction::String -> Type -> E ClassInfo
-addFunction name fType@Fun{} classInfo = let cName = _name classInfo
-                                    in let nVTable = addMapping name cName $ _vtable classInfo
-                                     in let currComponents = _components classInfo
-                                      in classInfo {_vtable = nVTable, _components = M.insert name fType currComponents}
+addFunction name fType@Fun{} classInfo =
+  let cName = _name classInfo in
+  let nVTable = addMapping name cName $ _vtable classInfo in
+  let currComponents = _components classInfo in
+  classInfo {_vtable = nVTable, _components = M.insert name fType currComponents}
 
 
 data Variable = LocalVar String Type | Instance String Type deriving (Show)
@@ -126,6 +143,7 @@ data Env = Env {
   _variables :: M.Map String Variable,
   _variableMapping :: M.Map String String
 } deriving (Show)
+
 
 emptyEnv::Env
 emptyEnv = Env {_classInfos = M.empty, _functions = M.empty, _variables = M.empty, _variableMapping = M.empty}
@@ -179,6 +197,8 @@ instance Positionable () where
 
 data PosHolder = forall s. Positionable s => PosHolder s
 
+
+-- Kolejna monada state, ale tym razem trzymające pozycję aktualną
 newtype PosMonad a = PosMonad { runPos::PosHolder -> (a, PosHolder) }
 
 evalPos::PosMonad a -> a

@@ -60,16 +60,15 @@ checkExpr (EFldAcc pos obj fld@(Ident fldName)) = do
                           return $ EFldNoAcc (LValue $ fromJust fldType) objExpr fldNo
     t -> throwPosError $ "Type " ++ show t ++ " doesnt have any field!!!"
 
-
 checkExpr (EApp pos (EVar _ (Ident fName)) args) = do
   withPos pos
   fType <- getInScope Global (functionI fName)
   unless (isJust fType) $ throwPosError $ "Function " ++ fName ++ " is not defined"
   let func = fromJust fType
-  let (rType, tArgs) = case func of --TODO instance func
+  let (rType, tArgs) = case func of
                          (TCC.FunctionInfo _ r a) -> (r, a)
                          (TCC.InstanceFunc _ r a) -> (r, a)
-  unless (length tArgs == length args) $ throwPosError "Wrong number of arguments"
+  unless (length tArgs == length args) $ wrongArgsNumber (length tArgs) (length args)
   argsExpr <- mapM checkExpr args
   zipWithM_ expectsTypeAE tArgs argsExpr
   let retAllocType =case rType of
@@ -96,16 +95,20 @@ checkExpr (EApp pos (EFldAcc _ obj (Ident fName)) args) = do
                         cInfo <- fromJust <$> getInScope Global (classI cName)
                         let fNumber = _fNameMapping (_vtable cInfo) M.! fName
                         let maybeFType = _components cInfo M.!? fName
-                        unless (isJust maybeFType && (isFunc (fromJust maybeFType))) $ throwPosError $ "Class " ++ cName ++ " doesn't have function " ++ fName
+                        unless (maybe False isFunc maybeFType) $ throwPosError $ "Class " ++ cName ++ " doesn't have function " ++ fName
                         let (TCC.Fun rType tArgs) = fromJust maybeFType
-                        unless (length tArgs == length args) $ throwPosError "Wrong number of arguments"
+                        unless (length tArgs == length args) $ wrongArgsNumber (length tArgs) (length args)
                         argsExpr <- mapM checkExpr args
                         zipWithM_ expectsTypeAE tArgs argsExpr
                         let retAllocType =case rType of
                                              (TCC.Class _) -> RValue
                                              (TCC.Array _) -> RValue
                                              _ -> LValue
-                        return $ EVirtCall (retAllocType rType) objExpr fNumber argsExpr
+                        if wasFOverriden fName cInfo then return $ EVirtCall (retAllocType rType) objExpr fNumber argsExpr
+                        else do
+                              let (fF, ofc) = _fMapping (_vtable cInfo) M.! fNumber
+                              let origClass = TCC.Class ofc
+                              return $ EApp (retAllocType rType) (EVar (RValue (TCC.Fun rType (origClass : tArgs))) (Ident fF)) (objExpr : argsExpr)
     _ -> throwPosError "Cannot call function on object which is not a class"
 
 checkExpr (ENewArr pos aType length) = do

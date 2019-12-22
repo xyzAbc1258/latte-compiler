@@ -27,7 +27,7 @@ mapTypes TCU.Int = i32
 mapTypes TCU.Bool = i1
 mapTypes TCU.Void = LMVoid
 mapTypes TCU.Str = i8Ptr
-mapTypes (TCU.Array t) = LMStructU [i32, LMPointer $ valType $ mapTypeBack t]
+mapTypes (TCU.Array t) = LMStruct [i32, LMPointer $ valType $ mapTypeBack t]
 mapTypes (TCU.Class name) = LMAlias (mkFastString name, LMVoid)
 
 valTType::TCU.Type -> LlvmType

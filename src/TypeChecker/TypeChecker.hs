@@ -73,18 +73,21 @@ declare (ClDef pos (Ident name) ext members) = do
                               unless existsBaseClass $ throwPosError $ "Type " ++ bClass ++ " doesnt exists"
                               bInfo <- fromJust <$> getInScope Global (classI bClass)
                               return $ bInfo {_baseClass = Just bClass, _name = name}
-  declareNew <- foldl (>>=) (return baseClass) $ map addDeclaration members
-  asks (withClass name declareNew)
+  (declareNew, cm) <- foldM (\(b,m) d -> (\(nb,nm) -> (nb, nm . m)) <$> d b) (baseClass, id) $ map addDeclaration members
+  asks (withClass name declareNew . cm)
+  -- modyfikuje classInfo i zwraca modyfikację środowiska
   where addDeclaration (ClFld pos t (Ident name)) ci = do
                                                       when (M.member name $ _components ci) $ throwPosError $ "Member " ++ name ++ " was already declared"
                                                       let nt = mapType t
                                                       typeExists nt
-                                                      return $ addVariable name nt ci
+                                                      return (addVariable name nt ci, id)
         addDeclaration (ClFunc _ rType (Ident fName) args _) ci = do
                                                                    let existing = _components ci M.!? fName
                                                                    let resFType = TCC.Fun (mapType rType) (map mapType [t | Arg _ t _ <- args] )
                                                                    when (isJust existing && existing /= Just resFType) $ mThrowError $ "Member " ++ fName ++ " was already declared with different type!"
-                                                                   return $ addFunction fName resFType ci
+                                                                   let newCi = addFunction fName resFType ci
+                                                                   if isJust existing then return (newCi, markAsOverriden fName (fromJust $ _baseClass ci))
+                                                                   else return (newCi, id)
 
 checkTopDef::(Positionable a) => [TopDef a] -> TypeChecker [TopDef TCC.Type]
 checkTopDef (f@(FnDef _ rType (Ident name) args block): rest) = do
