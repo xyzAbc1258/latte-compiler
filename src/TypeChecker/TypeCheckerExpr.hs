@@ -65,33 +65,27 @@ checkExpr (EApp pos (EVar _ (Ident fName)) args) = do
   fType <- getInScope Global (functionI fName)
   unless (isJust fType) $ throwPosError $ "Function " ++ fName ++ " is not defined"
   let func = fromJust fType
-  let (rType, tArgs) = case func of
-                         (TCC.FunctionInfo _ r a) -> (r, a)
-                         (TCC.InstanceFunc _ r a) -> (r, a)
-  unless (length tArgs == length args) $ wrongArgsNumber (length tArgs) (length args)
-  argsExpr <- mapM checkExpr args
-  zipWithM_ expectsTypeAE tArgs argsExpr
-  let retAllocType =case rType of
-                      (TCC.Class _) -> RValue
-                      (TCC.Array _) -> RValue
-                      _ -> LValue
   case func of
-    TCC.FunctionInfo{} -> return $ EApp (retAllocType rType) (EVar (RValue (TCC.Fun rType tArgs)) (Ident fName)) argsExpr
-    TCC.InstanceFunc{} -> do
-                           thisType <- varType . fromJust <$> getInScope Global (varL thisName)
-                           let (TCC.Class cName) = thisType
-                           cInfo <- fromJust <$> getInScope Global (classI cName)
-                           let fNumber = _fNameMapping (_vtable cInfo) M.! fName
-                           let thisVar = EVar (LValue thisType) (Ident thisName)
-                           return $ EVirtCall (retAllocType rType) thisVar fNumber argsExpr
-
+    TCC.InstanceFunc {} -> do
+                        let this = EVar pos (Ident thisName)
+                        let nExpr = EApp pos (EFldAcc pos this (Ident fName)) args
+                        checkExpr nExpr
+    TCC.FunctionInfo _ rType tArgs -> do
+                        unless (length tArgs == length args) $ wrongArgsNumber (length tArgs) (length args)
+                        argsExpr <- mapM checkExpr args
+                        zipWithM_ expectsTypeAE tArgs argsExpr
+                        let retAllocType =case rType of
+                                            (TCC.Class _) -> RValue
+                                            (TCC.Array _) -> RValue
+                                            _ -> LValue
+                        return $ EApp (retAllocType rType) (EVar (RValue (TCC.Fun rType tArgs)) (Ident fName)) argsExpr
 
 
 checkExpr (EApp pos (EFldAcc _ obj (Ident fName)) args) = do
   withPos pos
   objExpr <- checkExpr obj
   case getType $ extract objExpr of
-    thisType@(TCC.Class cName) -> do --TODO refactor, powtórzenia z funkcją wyżej
+    thisType@(TCC.Class cName) -> do
                         cInfo <- fromJust <$> getInScope Global (classI cName)
                         let fNumber = _fNameMapping (_vtable cInfo) M.! fName
                         let maybeFType = _components cInfo M.!? fName
