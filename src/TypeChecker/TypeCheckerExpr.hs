@@ -20,10 +20,11 @@ import Control.Lens((&))
 import Data.Tuple(swap)
 import TypeChecker.ExprSimplification(simplifyExpr)
 
-
 checkExpr::(Positionable a) => Expr a -> TypeChecker (Expr TCC.AllocType)
-checkExpr (EVar pos (Ident x)) = do
-  withPos pos
+checkExpr e = withPos (extract e) >> _checkExpr e
+
+_checkExpr::(Positionable a) => Expr a -> TypeChecker (Expr TCC.AllocType)
+_checkExpr (EVar pos (Ident x)) = do
   d <- getInScope Global (varL x)
   when (isNothing d) $ throwPosError $ "Variable " ++ x ++ " is undefined"
   case fromJust d of
@@ -37,18 +38,16 @@ checkExpr (EVar pos (Ident x)) = do
                       let finalName = newName <|> Just x
                       return $ EVar (LValue t) (Ident (fromJust finalName))
 
-checkExpr (ELitInt _ i) = return $ ELitInt (RValue TCC.Int) i
-checkExpr (ELitTrue _) = return $ ELitTrue (RValue TCC.Bool)
-checkExpr (ELitFalse _) = return $ ELitFalse (RValue TCC.Bool)
+_checkExpr (ELitInt _ i) = return $ ELitInt (RValue TCC.Int) i
+_checkExpr (ELitTrue _) = return $ ELitTrue (RValue TCC.Bool)
+_checkExpr (ELitFalse _) = return $ ELitFalse (RValue TCC.Bool)
 
-checkExpr (ENewObj pos (AbsLatte.Class _ (Ident a))) = do
-  withPos pos
+_checkExpr (ENewObj pos (AbsLatte.Class _ (Ident a))) = do
   c <- getInScope Global (classI a)
   unless (isJust c) $ throwPosError $ "Class " ++ a ++ " doesnt exists"
   return $ ENewObj (LValue $ TCC.Class a) (AbsLatte.Class TCC.allocNone (Ident a))
 
-checkExpr (EFldAcc pos obj fld@(Ident fldName)) = do
-  withPos pos
+_checkExpr (EFldAcc pos obj fld@(Ident fldName)) = do
   objExpr <- checkExpr obj
   case getType (extract objExpr) of
     TCC.Array _ -> do unless (fldName == "length") $ throwPosError "Array doesnt have any other field than length"
@@ -60,8 +59,7 @@ checkExpr (EFldAcc pos obj fld@(Ident fldName)) = do
                           return $ EFldNoAcc (LValue $ fromJust fldType) objExpr fldNo
     t -> throwPosError $ "Type " ++ show t ++ " doesnt have any field!!!"
 
-checkExpr (EApp pos (EVar _ (Ident fName)) args) = do
-  withPos pos
+_checkExpr (EApp pos (EVar _ (Ident fName)) args) = do
   fType <- getInScope Global (functionI fName)
   unless (isJust fType) $ throwPosError $ "Function " ++ fName ++ " is not defined"
   let func = fromJust fType
@@ -81,8 +79,7 @@ checkExpr (EApp pos (EVar _ (Ident fName)) args) = do
                         return $ EApp (retAllocType rType) (EVar (RValue (TCC.Fun rType tArgs)) (Ident fName)) argsExpr
 
 
-checkExpr (EApp pos (EFldAcc _ obj (Ident fName)) args) = do
-  withPos pos
+_checkExpr (EApp pos (EFldAcc _ obj (Ident fName)) args) = do
   objExpr <- checkExpr obj
   case getType $ extract objExpr of
     thisType@(TCC.Class cName) -> do
@@ -105,8 +102,7 @@ checkExpr (EApp pos (EFldAcc _ obj (Ident fName)) args) = do
                               return $ EApp (retAllocType rType) (EVar (RValue (TCC.Fun rType (origClass : tArgs))) (Ident fF)) (objExpr : argsExpr)
     _ -> throwPosError "Cannot call function on object which is not a class"
 
-checkExpr (ENewArr pos aType length) = do
-  withPos pos
+_checkExpr (ENewArr pos aType length) = do
   lengthExpr <- checkExpr length
   expectsTypeAE TCC.Int lengthExpr
   let mType = mapType aType
@@ -114,8 +110,7 @@ checkExpr (ENewArr pos aType length) = do
   return $ ENewArr (LValue $ TCC.Array mType) (insertNoneType aType) lengthExpr
 
 
-checkExpr (EArrAcc pos arr index) = do
-  withPos pos
+_checkExpr (EArrAcc pos arr index) = do
   eInd <- checkExpr index
   expectsTypeAE TCC.Int eInd
   aExpr <- checkExpr arr
@@ -123,26 +118,23 @@ checkExpr (EArrAcc pos arr index) = do
     TCC.Array t -> return $ EArrAcc (LValue t) aExpr eInd
     t -> throwPosError $ "Expected expression of type array, got: " ++ show t
 
-checkExpr (EString _ s) = do
-  let ns = if(null s || head s /= '"') then s else reverse $ tail $ reverse $ tail s -- coś nie tak z parsowaniem
+_checkExpr (EString _ s) = do
+  let ns = if null s || head s /= '"' then s else init (tail s) -- coś nie tak z parsowaniem
   return $ EString (RValue TCC.Str) ns
 
-checkExpr (Neg pos a) = do
-  withPos pos
+_checkExpr (Neg pos a) = do
   inner <- checkExpr a
   expectsTypeAE TCC.Int inner
   simplifyExpr $ Neg (RValue TCC.Int) inner
 
-checkExpr (Not pos a) = do
-  withPos pos
+_checkExpr (Not pos a) = do
   inner <- checkExpr a
   expectsTypeAE TCC.Bool inner
   simplifyExpr $ Not (RValue TCC.Bool) inner
 
-checkExpr (EMul pos op1 opr op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EMul t e1 (insertNoneType opr))
+_checkExpr (EMul pos op1 opr op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EMul t e1 (insertNoneType opr))
 
-checkExpr(EAdd pos  op1 p@(Plus _) op2) = do
-  withPos pos
+_checkExpr(EAdd pos  op1 p@(Plus _) op2) = do
   e1 <- checkExpr op1
   e2 <- checkExpr op2
   let t1 = getType $ extract e1
@@ -150,10 +142,9 @@ checkExpr(EAdd pos  op1 p@(Plus _) op2) = do
   unless ((t1,t2) `elem` [(TCC.Int, TCC.Int), (TCC.Str, TCC.Str)]) $ throwPosError "Couldnt deduce operand types"
   simplifyExpr $ EAdd (RValue t1) e1 (insertNoneType p) e2
 
-checkExpr (EAdd pos op1 opr@Minus{} op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EAdd t e1 (insertNoneType opr))
+_checkExpr (EAdd pos op1 opr@Minus{} op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EAdd t e1 (insertNoneType opr))
 
-checkExpr (ERel p op1 opr@(EQU _) op2) = do
-  withPos p
+_checkExpr (ERel p op1 opr@(EQU _) op2) = do
   e1 <- checkExpr op1
   e2 <- checkExpr op2
   let t1 = getType $ extract e1
@@ -162,8 +153,7 @@ checkExpr (ERel p op1 opr@(EQU _) op2) = do
   when (t1 == TCC.Void) $ throwPosError "Cannot compare void values"
   simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
 
-checkExpr (ERel p op1 opr@(NE _) op2) = do
-  withPos p
+_checkExpr (ERel p op1 opr@(NE _) op2) = do
   e1 <- checkExpr op1
   e2 <- checkExpr op2
   let t1 = getType $ extract e1
@@ -172,14 +162,13 @@ checkExpr (ERel p op1 opr@(NE _) op2) = do
   when (t1 == TCC.Void) $ throwPosError "Cannot compare void values"
   simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
 
-checkExpr (ERel pos op1 opr op2) = withPos pos >> binOpCheck op1 op2 (TCC.Int, TCC.Int, TCC.Bool) (\t e1 -> ERel t e1 (insertNoneType opr))
+_checkExpr (ERel pos op1 opr op2) = binOpCheck op1 op2 (TCC.Int, TCC.Int, TCC.Bool) (\t e1 -> ERel t e1 (insertNoneType opr))
 
-checkExpr (EAnd pos op1 op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Bool EAnd
+_checkExpr (EAnd pos op1 op2) = binOpCheckTrio op1 op2 TCC.Bool EAnd
 
-checkExpr (EOr pos op1 op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Bool EOr
+_checkExpr (EOr pos op1 op2) = binOpCheckTrio op1 op2 TCC.Bool EOr
 
-checkExpr (ENull p t) = do
-  withPos p
+_checkExpr (ENull p t) = do
   let nt = mapType t
   case nt of
     TCC.Str -> return  $ ENull (RValue TCC.Str) (insertNoneType t)

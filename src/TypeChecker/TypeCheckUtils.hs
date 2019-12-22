@@ -220,7 +220,7 @@ class (Monad m) => WithPosition m where
   withPos::(Positionable a) => a -> m ()
 
 instance WithPosition PosMonad where
-  withPos a = PosMonad { runPos = const ((), PosHolder a)}
+  withPos a = when (showPosition a /= "") PosMonad{runPos = const ((), PosHolder a)}
   pos = PosMonad { runPos = \p -> (p, p) }
 
 instance (Monad wp, WithPosition wp, MonadTrans m, Monad (m wp)) => WithPosition (m wp) where
