@@ -111,3 +111,7 @@ checkHasReturn isVoid [For _ _ _ _ b] = checkHasReturn isVoid [b]
 checkHasReturn isVoid (_:r) = checkHasReturn isVoid r
 
 
+isEmptyStmt :: Stmt a -> Bool
+isEmptyStmt Empty{} = True
+isEmptyStmt (BStmt _ (Block _ l)) = all isEmptyStmt l
+isEmptyStmt _ = False

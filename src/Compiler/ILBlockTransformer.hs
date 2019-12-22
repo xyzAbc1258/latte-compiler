@@ -9,7 +9,7 @@ import Unique (getUnique)
 import Control.Monad.Writer
 import qualified Data.Map as M
 import Compiler.PhiPropagator
-import Compiler.PhiSimplifier
+import Compiler.LlvmSimplifier
 
 transformFuncBody::[Stmt TCU.Type] -> Translator LlvmBlocks
 transformFuncBody s = do

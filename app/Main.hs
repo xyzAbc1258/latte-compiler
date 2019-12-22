@@ -55,7 +55,7 @@ compileAndSaveTree s tree
       let blocks = toBlockStructure baseForm
       writeFile (addExtension s "block") $ printTree blocks
       let llvm = replace "\0" "" $ toString blocks
-      let full = stdLib ++ "\n" ++ llvm
+      let full = llvm ++ "\n" ++ stdLib
       let f = dropExtension s
       let llFile = addExtension f "ll"
       writeFile llFile full

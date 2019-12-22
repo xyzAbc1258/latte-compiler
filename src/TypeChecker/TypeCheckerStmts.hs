@@ -32,13 +32,14 @@ checkStmts (Empty _ : t) = checkStmts t
 checkStmts (BStmt _ b@Block{} : t) = (:) <$> (BStmt TCC.None <$> checkBlock b) <*> checkStmts t
 
 checkStmts (Decl pos typ items : t) = do
+  withPos pos
   let nt = mapType typ
-  when (nt == TCC.Void) $ mPosThrowError pos "Cannot declare variable of type void"
+  when (nt == TCC.Void) $ throwPosError "Cannot declare variable of type void"
   let varNames = [n | Init _ (Ident n) _ <- items] ++ [n | NoInit _ (Ident n) <- items]
   let initExprs = fmap (() <$) [e | Init _ _ e <- items] ++ [defaultValue nt | NoInit{} <- items]
-  unless (unique varNames) $ mPosThrowError pos "Variable names has to be unique"
+  unless (unique varNames) $ throwPosError "Variable names has to be unique"
   alreadyDeclared <- filterM (`existsVariable` Local) varNames
-  unless (null alreadyDeclared) $ mPosThrowError pos $ "Variables " ++ show alreadyDeclared ++ " were already declared"
+  unless (null alreadyDeclared) $ throwPosError $ "Variables " ++ show alreadyDeclared ++ " were already declared"
   exprs <- mapM checkExpr initExprs
   mapM_ (expectsTypeAE nt) exprs
   (mappedNames, modifiers) <- unzip <$> mapM (`declareLocalVariable` nt) varNames
@@ -47,10 +48,11 @@ checkStmts (Decl pos typ items : t) = do
   (newDecl :) <$> local declareNew (checkStmts t)
 
 checkStmts (Ass pos lhs rhs : t) = do
+  withPos pos
   lhsType <- checkExpr lhs
   rhsType <- checkExpr rhs
   case extract lhsType of
-    RValue _ -> mPosThrowError pos "Left side of assignment has to be a lvalue!!"
+    RValue _ -> throwPosError "Left side of assignment has to be a lvalue!!"
     LValue t -> expectsTypeAE t rhsType
   (Ass None (fmap getType lhsType) (fmap getType rhsType) :) <$> checkStmts t
 
@@ -60,7 +62,8 @@ checkStmts (Incr v expr : t) =
 checkStmts (Decr v expr : t) =
   checkStmts $ Ass v expr (EAdd v expr (Minus v) (ELitInt v 1)): t
 
-checkStmts (Ret _ expr : t) = do
+checkStmts (Ret pos expr : t) = do
+  withPos pos
   var <- fromJust <$> getInScope Global (varL retVarName)
   let retType = varType var
   exprType <- checkExpr expr
@@ -69,12 +72,14 @@ checkStmts (Ret _ expr : t) = do
   return [Ret retType (fmap getType exprType)]
 
 checkStmts (VRet pos : t) = do
+  withPos pos
   var <- fromJust <$> getInScope Global (varL retVarName)
   let retType = varType var
-  unless (retType == TCC.Void) $ mPosThrowError pos "Wrong return type"
+  unless (retType == TCC.Void) $ throwPosError "Wrong return type"
   checkStmts t
   return [VRet TCC.Void]
 
+checkStmts (Cond _ cond ift : t) | isEmptyStmt ift = checkExpr cond >>= expectsTypeAE TCC.Bool >> checkStmts t
 checkStmts (Cond _ cond ifTrue : t) = do
   condExpr <- checkExpr cond
   expectsTypeAE TCC.Bool condExpr
@@ -86,6 +91,8 @@ checkStmts (Cond _ cond ifTrue : t) = do
      [sTrue] -> (Cond None (fmap getType condExpr) sTrue:) <$> checkStmts t
      _ -> mThrowError  "Error in typing if statement" -- Wewnętrzny błąd nie powinien nigdy wystąpić :)
 
+checkStmts (CondElse v cond ifT ifF : t) | isEmptyStmt ifF = checkStmts (Cond v cond ifT : t)
+checkStmts (CondElse v cond ifT ifF : t) | isEmptyStmt ifT = checkStmts (Cond v (Neg v cond) ifF : t)
 checkStmts (CondElse _ cond ifTrue ifElse : t) = do
   condExpr <- checkExpr cond
   expectsTypeAE TCC.Bool condExpr
@@ -109,6 +116,8 @@ checkStmts (While _ cond block : t) = do
     [sBlock] | isTrueExpr condExpr && checkHasReturn False sBlockE -> return sBlockE
     [sBlock] | isTrueExpr condExpr -> return [While None (fmap getType condExpr) sBlock]
     [sBlock] -> return (While None (fmap getType condExpr) sBlock : rest)
+    _ | isEmptyStmt block && isFalseExpr condExpr -> return rest
+    _ | isEmptyStmt block -> return (While None (fmap getType condExpr) (Empty None) : rest)
     _ -> mThrowError "Internal error"
 
 checkStmts (For _ typ (Ident v) collection body : t) = do

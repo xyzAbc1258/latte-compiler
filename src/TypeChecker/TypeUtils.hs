@@ -5,7 +5,6 @@ module TypeChecker.TypeUtils(
 ) where
 
 import TypeChecker.TypeCheckUtils
-import Control.Monad.Reader
 import qualified Data.Map as M
 import qualified AbsLatte as A
 import Common.ASTUtils
@@ -13,6 +12,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Data.Maybe
 import Control.Applicative((<|>))
+import Control.Monad.Except
 
 
 primitives = [Int, Str, Bool, Void]
@@ -58,16 +58,16 @@ isTypeDefined (Array t) = isTypeDefined t
 
 -- Expectations --
 
-expectsType::(MonadRErrorC String m, MonadReader StackEnv m) => Type -> Type -> m ()
-expectsType exp got = isConvertible got exp >>= (\ b -> unless b $ mThrowError $ "Expected " ++ show exp ++ " got " ++ show got)
+expectsType::(MonadError String m, MonadReader StackEnv m, WithPosition m) => Type -> Type -> m ()
+expectsType exp got = isConvertible got exp >>= (\ b -> unless b $ throwPosError $ "Expected " ++ show exp ++ " got " ++ show got)
 
-expectsAllocType::(MonadRErrorC String m, MonadReader StackEnv m) => AllocType -> AllocType -> m ()
+expectsAllocType::(MonadError String m, MonadReader StackEnv m, WithPosition m) => AllocType -> AllocType -> m ()
 expectsAllocType exp got = do
   b <-isConvertible (getType got) (getType exp)
-  unless (sameAlloc exp got && b) $ mThrowError $ "Expected " ++ show exp ++ " got " ++ show got
+  unless (sameAlloc exp got && b) $ throwPosError $ "Expected " ++ show exp ++ " got " ++ show got
 
-expectsTypeA::(MonadRErrorC String m, MonadReader StackEnv m) =>Type -> AllocType -> m()
+expectsTypeA::(MonadError String m, MonadReader StackEnv m, WithPosition m) =>Type -> AllocType -> m()
 expectsTypeA t a = expectsType t (getType a)
 
-expectsTypeAE::(MonadRErrorC String m, MonadReader StackEnv m) =>Type -> A.Expr AllocType -> m()
+expectsTypeAE::(MonadError String m, MonadReader StackEnv m, WithPosition m) =>Type -> A.Expr AllocType -> m()
 expectsTypeAE t e = expectsTypeA t $ extract e

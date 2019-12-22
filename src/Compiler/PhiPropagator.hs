@@ -109,17 +109,11 @@ propagatePhi l = do
             prop {_requires = requires, _exports = exports, _imports = M.map (const Nothing) requires}
 
 
-untilStabilize::(Eq a ,Monad m) => (a -> m a) -> a -> m a -- poor man's fix :)
-untilStabilize f a = do
-  r <- f a
-  if r /= a then untilStabilize f r
-  else return r
-
 propagatePhiForVar::LlvmVar -> MEProp
-propagatePhiForVar v = untilStabilize main
+propagatePhiForVar v = untilStabilizeM main
   where main p = do
                     let requiring = M.keys $ M.filter id $  _requires p
-                    sp <- untilStabilize (simplePropagateVar v) p
+                    sp <- untilStabilizeM (simplePropagateVar v) p
                     finalP <- foldM (\p i ->fst <$> getImportValue v i p) sp requiring
                     let allSatisfied = all (isJust . (_imports finalP M.!)) requiring
                     if allSatisfied then return $ finalP & blocks %~ M.map (filterOutAllocStoreFromBlock v)

@@ -171,7 +171,7 @@ instance (Monad m) => Applicative (LocalT s m) where
 
 instance (Monad m) => Monad (LocalT a m) where
   return a = LocalT{ runLocal = \s -> return (a,s)}
-  f >>= m = LocalT { runLocal = \s -> runLocal f s >>= (\(a,ns) -> runLocal (m a) ns)}
+  f >>= m = LocalT { runLocal = runLocal f >=> (\ (a, ns) -> runLocal (m a) ns)}
 
 instance MonadTrans (LocalT a) where
   lift m = LocalT {runLocal = \s -> (,s) <$> m}
@@ -199,8 +199,15 @@ instance (MonadState s m) => MonadState s (LocalT l m)  where
   state = lift . state
 
 
+mapStmtsInBlock::([LlvmStatement] -> [LlvmStatement]) -> LlvmBlock -> LlvmBlock
+mapStmtsInBlock f b = b { blockStmts = f $ blockStmts b}
+
+
+mapStmtInBlock::(LlvmStatement -> LlvmStatement) -> LlvmBlock -> LlvmBlock
+mapStmtInBlock f = mapStmtsInBlock (map f)
+
 replaceVars::LlvmVar -> LlvmVar -> LlvmBlock -> LlvmBlock
-replaceVars from to b = b {blockStmts = map (replaceVarsInStmt from to) $ blockStmts b}
+replaceVars from to = mapStmtInBlock (replaceVarsInStmt from to)
 
 replaceVarsInStmts::LlvmVar -> LlvmVar -> [LlvmStatement] -> [LlvmStatement]
 replaceVarsInStmts f t = map (replaceVarsInStmt f t)
@@ -228,3 +235,47 @@ replaceVarsInExpr f t (GetElemPtr b v args) = GetElemPtr b (rviv f t v) (map (rv
 replaceVarsInExpr f t (Cast op v typ) = Cast op (rviv f t v) typ
 replaceVarsInExpr f t (Call typ on args w) = Call typ (rviv f t on) (map (rviv f t ) args ) w
 replaceVarsInExpr f t (Phi typ p) = Phi typ $ map (\(a,b) -> (rviv f t a, rviv f t b))  p
+
+
+
+isSimplifiable::LlvmExpression -> Bool
+isSimplifiable (LlvmOp LM_MO_SDiv _ v2) | isConst v2 && getValFromConst v2 == 0 = False
+isSimplifiable (LlvmOp _ v1 v2) = isConst v1 && isConst v2
+isSimplifiable (Compare _ v1 v2) = isConst v1 && isConst v2
+isSimplifiable _ = False
+
+isConst::LlvmVar -> Bool
+isConst (LMLitVar LMIntLit{}) = True
+isConst _ = False
+
+getValFromConst::LlvmVar -> Integer
+getValFromConst (LMLitVar  (LMIntLit v t)) = v
+
+type BinOp a = a -> a -> a
+type CmpOp a = a -> a -> Bool
+
+liftOp::BinOp Integer -> BinOp LlvmVar
+liftOp op v1 v2 = litNum (op (getValFromConst v1) (getValFromConst v2)) $ getVarType v1
+
+liftCmpOp::CmpOp Integer -> BinOp LlvmVar
+liftCmpOp op v1 v2 = litNum (if op (getValFromConst v1) (getValFromConst v2) then 1 else 0) i1
+
+simplifyLlvmOp::LlvmMachOp -> LlvmVar -> LlvmVar -> LlvmVar
+simplifyLlvmOp LM_MO_Add v1 v2 = liftOp (+) v1 v2
+simplifyLlvmOp LM_MO_Sub v1 v2 = liftOp (-) v1 v2
+simplifyLlvmOp LM_MO_Mul v1 v2 = liftOp (*) v1 v2
+simplifyLlvmOp LM_MO_SDiv v1 v2 = liftOp div v1 v2
+simplifyLlvmOp LM_MO_And v1 v2 = liftOp (\a b -> if (a + b) == 2 then 1 else 0) v1 v2
+simplifyLlvmOp LM_MO_Or v1 v2 = liftOp (\a b -> if (a + b) > 0 then 1 else 0) v1 v2
+
+simplifyLlvmCmp::LlvmCmpOp -> LlvmVar -> LlvmVar -> LlvmVar
+simplifyLlvmCmp LM_CMP_Eq  v1 v2 = liftCmpOp (==) v1 v2
+simplifyLlvmCmp LM_CMP_Ne  v1 v2 = liftCmpOp (/=) v1 v2
+simplifyLlvmCmp LM_CMP_Sgt v1 v2 = liftCmpOp (>) v1 v2
+simplifyLlvmCmp LM_CMP_Sge v1 v2 = liftCmpOp (>=) v1 v2
+simplifyLlvmCmp LM_CMP_Slt v1 v2 = liftCmpOp (<) v1 v2
+simplifyLlvmCmp LM_CMP_Sle v1 v2 = liftCmpOp (<=) v1 v2
+
+simplifyExpr::LlvmExpression -> LlvmVar
+simplifyExpr (LlvmOp m v1 v2) = simplifyLlvmOp m v1 v2
+simplifyExpr (Compare m v1 v2) = simplifyLlvmCmp m v1 v2

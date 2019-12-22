@@ -65,3 +65,15 @@ groupByFirst l =
 
 flatten::(Foldable t, Foldable f) => t (f a) -> [a]
 flatten = foldMap Fold.toList
+
+flatMap::(Foldable f) => (a -> f b) -> [a] -> [b]
+flatMap f = flatten . map f
+
+untilStabilizeM::(Eq a ,Monad m) => (a -> m a) -> a -> m a -- poor man's fix :)
+untilStabilizeM f a = do
+  r <- f a
+  if r /= a then untilStabilizeM f r
+  else return r
+
+untilStabilize::(Eq a) => E a -> E a 
+untilStabilize f = runIdentity . untilStabilizeM (Identity . f)

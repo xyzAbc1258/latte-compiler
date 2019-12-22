@@ -156,18 +156,9 @@ transformBinaryOp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmMachOp -> St
 transformBinaryOp rt v1 v2 op = do
   v1 <- transformRExpr v1
   v2 <- transformRExpr v2
-  case (v1, v2, op) of
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Add) -> return $ number (a + b)
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Sub) -> return $ number (a - b)
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_Mul) -> return $ number (a * b)
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_MO_SDiv) | b /= 0 -> return $ number (a `div` b)
-    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_Sub) -> return $ number (a - b)
-    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_And) ->
-      return $ litNum (if a + b == 2 then 1 else 0) i1
-    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_MO_Or) -> 
-      return $ litNum (if a + b > 0 then 1 else 0) i1
-    _ -> sAssign (valTType rt) (LlvmOp op v1 v2)
-
+  let expr = LlvmOp op v1 v2
+  if isSimplifiable expr then return $ simplifyExpr expr
+  else sAssign (valTType rt) expr
 
 
 transformBinaryCmp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmCmpOp -> StmtWriter LlvmVar
@@ -175,16 +166,9 @@ transformBinaryCmp rt v1 v2 op = do
   let bToLit a = return $ if a then litNum 1 i1 else litNum 0 i1
   v1 <- transformRExpr v1
   v2 <- transformRExpr v2
-  case (v1, v2, op) of
-    (LMLitVar (LMIntLit a (LMInt n1)), LMLitVar (LMIntLit b (LMInt n2)), LM_CMP_Eq) | n1 == n2 -> 
-      return $ if a == b then litNum 1 (LMInt n1) else litNum 0 (LMInt n1)
-    (LMLitVar (LMIntLit a (LMInt n1)), LMLitVar (LMIntLit b (LMInt n2)), LM_CMP_Ne) -> 
-      return $ if a /= b then litNum 1 (LMInt n1) else litNum 0 (LMInt n1)
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_CMP_Sle) -> bToLit (a <= b)
-    (LMLitVar (LMIntLit a (LMInt 32)), LMLitVar (LMIntLit b (LMInt 32)), LM_CMP_Sge) -> bToLit (a >= b)
-    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_CMP_Slt) -> bToLit (a < b)
-    (LMLitVar (LMIntLit a (LMInt 1)), LMLitVar (LMIntLit b (LMInt 1)), LM_CMP_Sgt) -> bToLit (a > b) 
-    _ -> sAssign (valTType rt) (Compare op v1 v2)
+  let expr = Compare op v1 v2
+  if isSimplifiable expr then return $ simplifyExpr expr
+  else sAssign (valTType rt) expr
 
 
 calcStructSize::LlvmType -> StmtWriter LlvmVar

@@ -27,16 +27,17 @@ import Data.Tuple(swap)
 import TypeChecker.TypeCheckerStmts
 
 checkTypes::(Positionable a) => Program a -> Either String (Program TCC.Type)
-checkTypes p = runExcept $ runReaderT (evalStateT (checkProgram p) 0)  baseStack
+checkTypes p = evalPos $ runExceptT $ runReaderT (evalStateT (checkProgram p) 0)  baseStack
 
 checkProgram::(Positionable a) => Program a -> TypeChecker (Program TCC.Type)
-checkProgram (Program _ defs) = do
+checkProgram (Program ppos defs) = do
+    withPos ppos
     let classes = [c | c@ClDef{} <- defs]
     let inheritances = map (\(ClDef _ (Ident name) ext _) -> (name, case ext of
                                                                       NoExt{} -> []
                                                                       ClassExt _ (Ident c) -> [c])) classes
 
-    unless (unique $ map fst inheritances) $ mThrowError "Class names must be unique"
+    unless (unique $ map fst inheritances) $ throwPosError "Class names must be unique"
     let inheritanceGraph = Gr.fromList inheritances
     when (Gr.hasCycle inheritanceGraph) $ mThrowError "Cycle in classes inheritance"
     let classesMap = M.fromList [(n,c) | c@(ClDef _ (Ident n) _ _) <- classes]
@@ -51,8 +52,9 @@ checkProgram (Program _ defs) = do
 
 declare::(Positionable a) => TopDef a -> TypeChecker StackEnv
 declare f@(FnDef pos rType (Ident name) args _) = do
+  withPos pos
   exists <- existsFunction name Global
-  when exists $ mPosThrowError pos $ "Function " ++ name ++ " was already defined"
+  when exists $ throwPosError $ "Function " ++ name ++ " was already defined"
   let argTypes = [t | Arg _ t _ <- args]
   let allTypes = map mapType (rType : argTypes)
   inErrorContext name $ mapM_ typeExists allTypes
@@ -60,20 +62,21 @@ declare f@(FnDef pos rType (Ident name) args _) = do
   asks (withFunction name funcInfo)
 
 declare (ClDef pos (Ident name) ext members) = do
+  withPos pos
   exists <- existsClass name Global
   let sameNameAsPrim = name `elem` map show primitives
-  when sameNameAsPrim $ mPosThrowError pos $ "Type " ++ name ++ " was already declared."
+  when sameNameAsPrim $ throwPosError $ "Type " ++ name ++ " was already declared."
   baseClass <- case ext of
     NoExt{} -> return $ createClassInfo name
     ClassExt pos (Ident bClass) -> do
                               existsBaseClass <- existsClass bClass Global
-                              unless existsBaseClass $ mPosThrowError pos $ "Type " ++ bClass ++ " doesnt exists"
+                              unless existsBaseClass $ throwPosError $ "Type " ++ bClass ++ " doesnt exists"
                               bInfo <- fromJust <$> getInScope Global (classI bClass)
                               return $ bInfo {_baseClass = Just bClass, _name = name}
   declareNew <- foldl (>>=) (return baseClass) $ map addDeclaration members
   asks (withClass name declareNew)
   where addDeclaration (ClFld pos t (Ident name)) ci = do
-                                                      when (M.member name $ _components ci) $ mPosThrowError pos $ "Member " ++ name ++ " was already declared"
+                                                      when (M.member name $ _components ci) $ throwPosError $ "Member " ++ name ++ " was already declared"
                                                       let nt = mapType t
                                                       typeExists nt
                                                       return $ addVariable name nt ci
@@ -115,18 +118,19 @@ checkTopDef [] = do
 checkFnDef::(Positionable a) => TopDef a -> TypeChecker [TopDef TCC.Type]
   --TODO refactor...
 checkFnDef (FnDef pos rType (Ident name) args block@(Block _ stmts)) = do
+  withPos pos
   let argTypes = [t | Arg _ t _ <- args]
   let allTypes = map mapType (rType : argTypes)
-  unless (all (/= TCC.Void) (tail allTypes)) $ mPosThrowError pos "Function argument cannot have type void"
+  when (TCC.Void `elem` tail allTypes) $ throwPosError "Function argument cannot have type void"
   let varNames = retVarName : [n | Arg _ _ (Ident n) <- args]
-  unless (unique varNames) $ mPosThrowError pos "Argument names are not unique"
+  unless (unique varNames) $ throwPosError "Argument names are not unique"
   nArgs <- mapM (\(Arg a t _) -> Arg a t . Ident <$> newIdentifier) args
   let variablesModifier = foldl1 (.) $ zipWith withVariable varNames allTypes
   let decls = [Decl None (None <$ t) [Init nt id (EVar nt nName)] |((Arg a t id, Arg _ _ nName), nt) <- zip (zip args nArgs) (tail allTypes) ]
   blockE <- local variablesModifier $ checkBlock block
   let (Block n s) = blockE
   let nBlock = Block n (decls ++ s)
-  unless (checkHasReturn (head allTypes == TCC.Void) s) $ mPosThrowError pos "There is a branch without return statement"
+  unless (checkHasReturn (head allTypes == TCC.Void) s) $ throwPosError "There is a branch without return statement"
   return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) nArgs) nBlock]
 
 

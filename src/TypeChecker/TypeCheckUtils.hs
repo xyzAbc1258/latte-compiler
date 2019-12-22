@@ -5,6 +5,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 module TypeChecker.TypeCheckUtils where
 
@@ -140,23 +141,22 @@ type StackA a = [a]
 
 type StackEnv = StackA Env
 
-type TypeChecker = StateT Integer (ReaderT StackEnv (Except String))
+type TypeChecker = StateT Integer (ReaderT StackEnv (ExceptT String PosMonad))
 
 class (Monad m) => MonadRErrorC e m where
   mThrowError::e -> m a
   mCatchError::m a -> (e -> m a) -> m a
 
-mPosThrowError::(Positionable a, MonadRErrorC String m) => a -> String -> m b
-mPosThrowError p m = mThrowError $ showPosition p ++ m
-
-instance(Monad m ,MonadError e m) => MonadRErrorC e m where
+instance (Monad m ,MonadError e m) => MonadRErrorC e m where
   mThrowError = throwError
   mCatchError = catchError
   
---instance(Monad m, MonadReader r m, MonadError (e,r) m) => MonadRErrorC e m where
---  mThrowError msg = asks (msg,) >>= throwError
---  mCatchError m f = catchError m (\(e,r) -> catchError (f e) (\(ne,_) -> throwError (ne, r))) --TODO usunąć później
-
+  
+throwPosError::(Monad m ,MonadError String m, WithPosition m) => String -> m b
+throwPosError msg = do
+  (PosHolder p) <- pos
+  throwError $ showPosition p ++ " " ++ msg
+  
 
 getValue::Alternative f => (a -> f b) -> StackA a -> f b
 getValue g [a] = g a
@@ -176,3 +176,33 @@ instance Positionable (Maybe (Int,Int)) where
                      
 instance Positionable () where
   showPosition _ = ""
+
+data PosHolder = forall s. Positionable s => PosHolder s
+
+newtype PosMonad a = PosMonad { runPos::PosHolder -> (a, PosHolder) }
+
+evalPos::PosMonad a -> a
+evalPos p = fst $ runPos p $ PosHolder ()
+
+instance Functor PosMonad where
+  fmap f v = PosMonad {runPos = \ph -> let (vv,p) = runPos v ph in (f vv, p)}
+
+instance Applicative PosMonad where
+  pure a = PosMonad {runPos = (a,)}
+  f <*> s = PosMonad { runPos = \ph -> let (ff, pph) = runPos f ph in runPos (fmap ff s) pph }
+
+instance Monad PosMonad where
+  return a = PosMonad { runPos = (a,)}
+  a >>= f = PosMonad { runPos = \ph -> let (av, pph) = runPos a ph in runPos (f av) pph }
+
+class (Monad m) => WithPosition m where
+  pos:: m PosHolder
+  withPos::(Positionable a) => a -> m ()
+
+instance WithPosition PosMonad where
+  withPos a = PosMonad { runPos = const ((), PosHolder a)}
+  pos = PosMonad { runPos = \p -> (p, p) }
+
+instance (Monad wp, WithPosition wp, MonadTrans m, Monad (m wp)) => WithPosition (m wp) where
+  withPos = lift . withPos
+  pos = lift pos
