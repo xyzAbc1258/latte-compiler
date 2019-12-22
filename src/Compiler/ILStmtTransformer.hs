@@ -37,7 +37,12 @@ transformStmt (Ass _ lhs rhs) = do
 
 transformStmt (Ret t e) = do
   v <- transformRExpr e
-  addStmt $ Return $ Just v
+  case (valTType t, getVarType v) of
+      (t1, t2) | t1 == t2 -> addStmt $ Return $ Just v
+      (t1, t2) -> do
+                    cVar <- sAssign t1 (Cast LM_Bitcast v t1)
+                    addStmt $ Return $ Just cVar
+  
 
 transformStmt VRet{} = addStmt $ Return Nothing
 

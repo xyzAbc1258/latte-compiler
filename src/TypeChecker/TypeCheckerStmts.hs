@@ -138,7 +138,7 @@ checkStmts (For _ typ (Ident v) collection body : t) = do
   let newSb = case sb of
                 BStmt _ (Block _ l) -> BStmt None (Block None (elemDecl : l ++ [incrementIter]))
                 s -> BStmt None (Block None (elemDecl : s : [incrementIter]))
-  let condition = ERel TCC.Bool iteratorVar (LTH None) $ EFldNoAcc nt collExpr 0
+  let condition = ERel TCC.Bool iteratorVar (LTH None) $ EFldNoAcc TCC.Int collExpr 0
   let while = While None condition newSb
   (\l -> decl : while : l) <$> checkStmts t
 

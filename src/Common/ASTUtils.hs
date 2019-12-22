@@ -106,6 +106,7 @@ checkHasReturn _ (Ret{}:_) = True -- sprawdzanie typów jest gdzieś indziej
 checkHasReturn _ (VRet{} : _) = True
 checkHasReturn _ [Cond _ _ s] = False
 checkHasReturn isVoid (CondElse _ _ ifT ifF :r) = (checkHasReturn isVoid [ifT] && checkHasReturn isVoid [ifF]) || checkHasReturn isVoid r
+checkHasReturn isVoid (While _ ELitTrue{} _ : r) = True -- nieskończone pętle jeśli się zakończą, to returnem ze środka, a jak nie to nie nasz problem
 checkHasReturn isVoid [While _ _ b] = checkHasReturn isVoid [b]
 checkHasReturn isVoid [For _ _ _ _ b] = checkHasReturn isVoid [b]
 checkHasReturn isVoid (_:r) = checkHasReturn isVoid r

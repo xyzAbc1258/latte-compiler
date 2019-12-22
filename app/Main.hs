@@ -43,6 +43,7 @@ run f p s = let ts = myLLexer s in case p ts of
            Ok  tree -> case checkTypes tree of
                             Left s -> putStrLn "ERROR!" >> putStrLn s >> exitFailure
                             Right s -> do
+                                        putStrLn "OK"
                                         compileAndSaveTree f s
                                         exitSuccess
 

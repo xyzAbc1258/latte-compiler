@@ -60,7 +60,7 @@ transformRExpr (EVar t (Ident name)) = do
 
 transformRExpr e@(EFldNoAcc t obj num) = do
   n1 <- transformLExpr e
-  sAssign (valTType t) (Load n1)
+  sAssign (pLower $ getVarType n1) (Load n1)
 
 transformRExpr e@(EArrAcc t a ind) = do
   n1 <- transformLExpr e
