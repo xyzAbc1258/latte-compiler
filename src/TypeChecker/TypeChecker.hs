@@ -107,8 +107,12 @@ checkTopDef (ClDef _ (Ident name) exts decls : rest) = do
   let funcsDecls = classVTable & _fNameMapping & M.toList & sortOn snd & map (\s -> (fMapping M.! snd s,comps M.! fst s)) & map toFuncDelc
   let vtable = VirtArray None (Ident ("virt_" ++ name)) $ map (None <$) funcsDecls
   r <- local (createEnvFromClassInfo ci :) $ checkTopDef fndefs
-  ((structDef : vtable : r) ++) <$> checkTopDef rest
-  where toFuncDelc ((fname, cName), TCC.Fun ret args) = FuncDecl () (mapTypeBack ret) (Ident fname) (map mapTypeBack (TCC.Class cName : args))
+  let typeClass = AbsLatte.Class None (Ident name)
+  let tccType = mapType typeClass
+  let init = FnDef None typeClass (Ident $ "__init_" ++ name) [] $ Block None [Ret tccType (ENewObj tccType typeClass)]
+  ((structDef : vtable : init : r) ++) <$> checkTopDef rest
+  where toFuncDelc ((fname, cName), TCC.Fun ret args) = 
+          FuncDecl () (mapTypeBack ret) (Ident fname) (map mapTypeBack (TCC.Class cName : args))
 
 checkTopDef [] = do
   mainF <- getInScope Global $ functionI "main"
