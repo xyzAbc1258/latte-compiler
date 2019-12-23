@@ -65,6 +65,9 @@ sAddVar n v = lift $ lift $ addVar n v
 sAssign::LlvmType -> LlvmExpression -> StmtWriter LlvmVar
 sAssign t e = lift (lift $ newVar t) >>= (`tryLocal` e)
 
+forceRememberLocal::LlvmVar -> LlvmExpression -> StmtWriter ()
+forceRememberLocal v e = modLocal (_2 %~ (((v, e) :) . filter ((/= e) . snd)))
+
 rememberLocal::LlvmVar -> LlvmExpression -> StmtWriter ()
 rememberLocal v e =
   case e of
@@ -197,6 +200,10 @@ instance (MonadState s m) => MonadState s (LocalT l m)  where
   get = lift get
   put = lift . put
   state = lift . state
+
+instance Eq LlvmBlock where
+  a == b = (blockLabel a == blockLabel b) && (blockStmts a == blockStmts b)
+  a /= b = (blockLabel a /= blockLabel b) || (blockStmts a /= blockStmts b)
 
 
 mapStmtsInBlock::([LlvmStatement] -> [LlvmStatement]) -> LlvmBlock -> LlvmBlock

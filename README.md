@@ -11,3 +11,4 @@ Zaimplementowane rozszerzenia:
     - usuwanie niepotrzebnych skoków
     - wywoływanie metod w sposób wirtualny tylko wtedy gdy były nadpisania
     - usuwanie nieosiągalnego kodu
+    - eliminacja wspólnych podwyrażeń

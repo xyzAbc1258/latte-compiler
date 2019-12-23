@@ -130,6 +130,7 @@ transformLExpr (EArrAcc t a ind) = do
   ind1 <- transformRExpr ind
   n1 <- sAssign (LMPointer $ LMPointer $ valTType t) (GetElemPtr True a1 [number 0, number 1])
   n2 <- sAssign (LMPointer $ valTType t) (Load n1)
+  forceRememberLocal n2 (Load n1)
   sAssign (LMPointer $ valTType t) (GetElemPtr True n2 [ind1])
 
 transformLExpr (ENewArr _ t size) = do
@@ -146,11 +147,13 @@ transformLExpr (ENewArr _ t size) = do
   arrPtr      <- sAssign (LMPointer structType) (Cast LM_Bitcast tmp1 (LMPointer structType))
   sizePtr     <- sAssign (LMPointer i32) (GetElemPtr True arrPtr [zero, zero])
   addStmt $ Store n1 sizePtr
+  forceRememberLocal n1 (Load sizePtr)
   tmp2        <- sAssign i8Ptr (Call StdCall malloc [allSize] [])
   addStmt $ callMemset tmp2 allSize
   tmpContPtr  <- sAssign (LMPointer elemType) (Cast LM_Bitcast tmp2 (LMPointer elemType))
   contentPtr  <- sAssign (LMPointer $ LMPointer elemType) (GetElemPtr True arrPtr [zero, number 1])
   addStmt $ Store tmpContPtr contentPtr
+  forceRememberLocal tmpContPtr (Load contentPtr)
   return arrPtr
 
 transformLExpr e =  sNewVar $ mapTypes $ extract e --Tu będą błędy :)

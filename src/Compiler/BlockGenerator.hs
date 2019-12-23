@@ -10,6 +10,7 @@ import Common.Graphs as G
 import qualified Data.Set as Set
 import qualified Data.Map as M
 import Data.List as List
+import Data.Tuple
 
 type LabelGen = State Int
 
@@ -39,9 +40,9 @@ splitStmtsToBlocksA s = do
 
 compactBlocks::(Show a) => [Stmt a] -> [Stmt a]
 compactBlocks s =
-  let successors = join $ map successor s in
+  let successors = flatMap successor s in
   let succMap = M.fromList $ groupByFirst successors in
-  let predMap = M.fromList $ groupByFirst (map (\(a,b) -> (b,a)) successors) in
+  let predMap = M.fromList $ groupByFirst (map swap successors) in
   let withSingleSucc = M.map head $ M.filter (( == 1) . length) succMap in
   let withSinglePred = M.map head $ M.filter (( == 1) . length) predMap in
   let toCompact = M.filterWithKey (\ k v -> (withSinglePred M.!? v) == Just k) withSingleSucc in

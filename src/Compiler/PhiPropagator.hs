@@ -22,16 +22,7 @@ import Outputable (showSDocUnsafe)
 import Control.Monad.Fix
 import Control.Lens
 import Data.Function
-
-instance Show LlvmBlock where
-  show b = show (blockLabel b)
-
-instance Show LlvmVar where
-  show v = showSDocUnsafe $ ppName v
-
-instance Eq LlvmBlock where
-  a == b = (blockLabel a == blockLabel b) && (blockStmts a == blockStmts b)
-  a /= b = (blockLabel a /= blockLabel b) || (blockStmts a /= blockStmts b)
+import Data.Tuple
 
 
 data PropagationInfo = PropagationInfo {
@@ -42,7 +33,7 @@ data PropagationInfo = PropagationInfo {
       _imports:: M.Map Int (Maybe LlvmVar),
       _exports:: M.Map Int (Maybe LlvmVar),
       _requires:: M.Map Int Bool
-    } deriving (Eq, Show)
+    } deriving (Eq)
 
 $(makeLenses ''PropagationInfo)
 
@@ -84,11 +75,11 @@ filterOutAllocStore _ _ = True
 
 propagatePhi::[(LlvmBlock, [LlvmVar], [(LlvmVar, LlvmVar)])] -> Translator LlvmBlocks
 propagatePhi l = do
-  let allToPropagate = nub $ join $ map (\(_,v,_) -> v) l
+  let allToPropagate = nub $ flatMap (\(_,v,_) -> v) l
   let withInt = zip [1 .. (length l)] l
   let vi = map (\(i,(b,_,_)) -> (blockLabel b, i)) withInt
   let succs = map (\(i,(b,_,_)) -> (i, map (\u -> snd $ getFirstSure (( == u) . fst) vi) $ getSuccessors b)) withInt
-  let preds = M.fromList $ groupByFirst $ map (\(a,b) -> (b,a)) $ join $ map (\(u,l) -> (u,) <$> l) succs
+  let preds = M.fromList $ groupByFirst $ map swap $ flatMap (\(u,l) -> (u,) <$> l) succs
   let withNoPred = M.fromList $ (, ()) <$> filter (not . (`M.member` preds)) (fst <$> tail withInt)
   let withIntFiltered = filter (\(i,_) -> M.member i preds  || i == 1) withInt
   let mapped = M.fromList $ map (\(i,(b,_,_)) -> (i,b)) withIntFiltered
