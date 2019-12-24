@@ -13,7 +13,7 @@ import Control.Lens
 import Debug.Trace
 
 simplifyLlvm::LlvmBlocks -> LlvmBlocks
-simplifyLlvm = untilStabilize (globalCommonSimplification . simplifyConstants . removeSingleValuePhis)
+simplifyLlvm = untilStabilize (compactBlocks . globalCommonSimplification . simplifyConstants . removeSingleValuePhis)
 
 -- przy przekształcaniu do ssa potrafią powstać %v = phi [%v, %1], [%c, %3] więc podmieniamy %v na %c 
 removeSingleValuePhis::LlvmBlocks -> LlvmBlocks
@@ -73,6 +73,25 @@ globalCommonSimplification b =
         correctExprs _ = True
 
 
+
+compactBlocks::E LlvmBlocks
+compactBlocks b =
+  let pInfo = buildPropagationInfo b in
+  let withSinglePred = _preds pInfo & M.filter ((== 1) . length) & M.map head in
+  let alsoWithSingleSucc = M.toList $ M.filter (\p -> _succs pInfo M.! p & length & (==) 1) withSinglePred in
+  case alsoWithSingleSucc of
+    [] -> b
+    (s,p) : _ -> let sBlock = _blocks pInfo M.! s in
+                 let pBlock = _blocks pInfo M.! p in
+                 let pBody = blockStmts pBlock in
+                 let sBody = blockStmts sBlock in
+                 let joined = pBlock {blockStmts = init pBody ++ sBody } in
+                 let nProp = pInfo & blocks %~ M.filterWithKey (\ k _ -> k /= s) . M.insert p joined in
+                 let fBlocks = M.elems $ M.map (replaceVars (varLabel sBlock) (varLabel pBlock)) $ _blocks nProp in
+                 compactBlocks fBlocks
+  where varLabel block = LMLocalVar (blockLabel block) LMLabel
+
+
 buildPropagationInfo::LlvmBlocks -> PropagationInfo
 buildPropagationInfo bs =
    let withInt = zip [1 .. (length bs)] bs in
@@ -112,3 +131,4 @@ getSimplePathsToEntry i p =
                    let preds = _preds p M.! i in
                    let paths = flatMap (((i :) <$>) . (\c -> helpF c p (i : visited))) preds in
                    paths
+

@@ -21,7 +21,11 @@ import Common.Utils(E, Defaultable, getDefault)
 import qualified Data.Set as S
 
 
-data Type = Int | Str | Bool | Void | Class String | Fun Type [Type] | Array Type | None deriving(Eq, Show)
+type ClassName = String
+type FuncName = String
+
+
+data Type = Int | Str | Bool | Void | Class ClassName | Fun Type [Type] | Array Type | None deriving(Eq, Show)
 
 isClass::Type -> Bool
 isClass Class{} = True
@@ -69,41 +73,41 @@ data AllocType = LValue Type |RValue Type deriving (Eq, Show)
 allocNone::AllocType
 allocNone = LValue None
 
-data FunctionInfo = FunctionInfo String Type [Type] | InstanceFunc String Type [Type] deriving (Show)
+data FunctionInfo = FunctionInfo FuncName Type [Type] | InstanceFunc FuncName Type [Type] deriving (Show)
 
 data VTable = VTable {
-  _fNameMapping :: M.Map String Integer,
-  _fMapping :: M.Map Integer (String, String)
+  _fNameMapping :: M.Map FuncName Integer,
+  _fMapping :: M.Map Integer (FuncName, ClassName)
 } deriving (Show)
 
 emptyVTable::VTable
 emptyVTable = VTable {_fNameMapping = M.empty, _fMapping = M.empty}
 
-addMapping::String->String-> E VTable
+addMapping::FuncName->ClassName-> E VTable
 addMapping fName cName vtable =
-  let fWithClassName = cName ++ "_" ++ fName in
+  let fWithClassName = "__"  ++ cName ++ "_" ++ fName in
   let currentfNameMapping = _fNameMapping vtable in
   let newFNameMapping = M.alter (\ s -> s <|> (Just $ fromIntegral (M.size currentfNameMapping))) fName currentfNameMapping in
   let newFMapping = M.insert (newFNameMapping M.! fName) (fWithClassName, cName) $ _fMapping vtable in
   VTable {_fNameMapping = newFNameMapping, _fMapping = newFMapping}
 
 data ClassInfo = ClassInfo {
-  _name :: String,
-  _baseClass :: Maybe String,
+  _name :: ClassName,
+  _baseClass :: Maybe ClassName,
   _components :: M.Map String Type,
   _vtable :: VTable,
   _varNameMapping :: M.Map String Integer,
-  _wasOverriden :: S.Set String
+  _wasOverriden :: S.Set FuncName
 } deriving (Show)
 
 
 
 $(makeLenses ''ClassInfo)
 
-wasFOverriden::String -> ClassInfo -> Bool
+wasFOverriden::FuncName -> ClassInfo -> Bool
 wasFOverriden n c = S.member n $ _wasOverriden c 
 
-createClassInfo::String -> ClassInfo
+createClassInfo::ClassName -> ClassInfo
 createClassInfo x = ClassInfo { _name = x, 
                                 _baseClass = Nothing, 
                                 _components = M.empty, 
@@ -113,7 +117,7 @@ createClassInfo x = ClassInfo { _name = x,
                                 }
 
 
-asOverriden::String -> E ClassInfo
+asOverriden::FuncName -> E ClassInfo
 asOverriden n = wasOverriden %~ S.insert n
 
 addVariable::String -> Type -> E ClassInfo
@@ -123,7 +127,7 @@ addVariable name vType classInfo =
   let new = M.alter (\s -> s <|> (Just $ fromIntegral (M.size current +1))) name current in
   classInfo {_varNameMapping = new, _components = M.insert name vType currComponents}
 
-addFunction::String -> Type -> E ClassInfo
+addFunction::FuncName -> Type -> E ClassInfo
 addFunction name fType@Fun{} classInfo =
   let cName = _name classInfo in
   let nVTable = addMapping name cName $ _vtable classInfo in
@@ -138,8 +142,8 @@ varType (LocalVar _ t) = t
 varType (Instance _ t) = t
 
 data Env = Env {
-  _classInfos :: M.Map String ClassInfo,
-  _functions :: M.Map String FunctionInfo,
+  _classInfos :: M.Map ClassName ClassInfo,
+  _functions :: M.Map FuncName FunctionInfo,
   _variables :: M.Map String Variable,
   _variableMapping :: M.Map String String
 } deriving (Show)

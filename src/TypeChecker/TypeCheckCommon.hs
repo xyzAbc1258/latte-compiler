@@ -18,7 +18,6 @@ import Data.List.Lens
 import TypeChecker.TypeCheckUtils
 import TypeChecker.TypeUtils
 
-
 import qualified AbsLatte as A
 import Common.ASTUtils (extract)
 
@@ -45,13 +44,13 @@ baseStack = [
     }
   ]
 
-classI ::String -> Lens' Env (Maybe ClassInfo)
+classI ::ClassName -> Lens' Env (Maybe ClassInfo)
 classI a = classInfos . at a
 
 varL :: String -> Lens' Env (Maybe Variable)
 varL a = variables . at a
 
-functionI :: String -> Lens' Env (Maybe FunctionInfo)
+functionI :: FuncName -> Lens' Env (Maybe FunctionInfo)
 functionI a = functions . at a
 
 varMappingL :: String -> Lens' Env (Maybe String)
@@ -81,13 +80,15 @@ newIdentifier = do
                 return $ "__v_" ++ show currentC
 
 
-withFunction::String -> FunctionInfo -> StackEnv ->StackEnv
+withFunction::FuncName -> FunctionInfo -> StackEnv ->StackEnv
 withFunction name fInfo = (current . functionI name) ?~ fInfo
 
-withClass::String -> ClassInfo -> StackEnv -> StackEnv
+--TODO można uprościć biorąc nazwę z classInfo
+withClass::ClassName -> ClassInfo -> StackEnv -> StackEnv
 withClass name cInfo = (current . classI name) ?~ cInfo
 
-markAsOverriden::String -> String -> StackEnv -> StackEnv
+
+markAsOverriden::FuncName -> ClassName -> StackEnv -> StackEnv
 markAsOverriden method cName s = 
   let ci = fromJust $ s ^. (current . classI cName) in
   let nc = asOverriden method ci in
@@ -96,20 +97,20 @@ markAsOverriden method cName s =
     Nothing -> ns
     Just b -> markAsOverriden method b ns
 
-getInScope::(MonadReader StackEnv m) =>Scope -> Lens' Env (Maybe a) -> m (Maybe a)
+getInScope::(MonadReader StackEnv m) => Scope -> Lens' Env (Maybe a) -> m (Maybe a)
 getInScope Local l = view $ current . l
 getInScope Global l = findInStackEnv (view l)
 
-existsInScope::(MonadReader StackEnv m) =>Scope -> Lens' Env (Maybe a) -> m Bool
+existsInScope::(MonadReader StackEnv m) => Scope -> Lens' Env (Maybe a) -> m Bool
 existsInScope scope l = isJust <$> getInScope scope l
 
-existsClass::(MonadReader StackEnv m) => String -> Scope -> m Bool
+existsClass::(MonadReader StackEnv m) => ClassName -> Scope -> m Bool
 existsClass name s = s `existsInScope` classI name
 
 existsVariable::(MonadReader StackEnv m) =>String -> Scope -> m Bool
 existsVariable name s = s `existsInScope` varL name
 
-existsFunction::(MonadReader StackEnv m) => String -> Scope -> m Bool
+existsFunction::(MonadReader StackEnv m) => FuncName -> Scope -> m Bool
 existsFunction name s = s `existsInScope` functionI name
 
 retVarName::String
@@ -117,6 +118,9 @@ retVarName = "__return"
 
 thisName::String
 thisName = "__this"
+
+initFunctionName::ClassName -> FuncName
+initFunctionName cName = "__init_" ++ cName
 
 inErrorContext::(MonadRErrorC String m, Show ctx) => ctx -> m a -> m a
 inErrorContext ectx tc = mCatchError tc (\e -> mThrowError $ "Error in " ++ show ectx ++ " context: \n" ++ e)

@@ -45,7 +45,7 @@ _checkExpr (ELitFalse _) = return $ ELitFalse (RValue TCC.Bool)
 _checkExpr (ENewObj pos t@(AbsLatte.Class _ (Ident a))) = do
   c <- getInScope Global (classI a)
   unless (isJust c) $ throwPosError $ "Class " ++ a ++ " doesnt exists"
-  return $ EApp (LValue $ TCC.Class a) (EVar (RValue $ TCC.Fun (TCC.Class a) []) (Ident $ "__init_" ++ a)) []
+  return $ EApp (LValue $ TCC.Class a) (EVar (RValue $ TCC.Fun (TCC.Class a) []) (Ident $ initFunctionName a)) []
 
 _checkExpr (EFldAcc pos obj fld@(Ident fldName)) = do
   objExpr <- checkExpr obj

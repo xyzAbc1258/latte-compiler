@@ -109,7 +109,7 @@ checkTopDef (ClDef _ (Ident name) exts decls : rest) = do
   r <- local (createEnvFromClassInfo ci :) $ checkTopDef fndefs
   let typeClass = AbsLatte.Class None (Ident name)
   let tccType = mapType typeClass
-  let init = FnDef None typeClass (Ident $ "__init_" ++ name) [] $ Block None [Ret tccType (ENewObj tccType typeClass)]
+  let init = FnDef None typeClass (Ident $ initFunctionName name) [] $ Block None [Ret tccType (ENewObj tccType typeClass)]
   ((structDef : vtable : init : r) ++) <$> checkTopDef rest
   where toFuncDelc ((fname, cName), TCC.Fun ret args) = 
           FuncDecl () (mapTypeBack ret) (Ident fname) (map mapTypeBack (TCC.Class cName : args))

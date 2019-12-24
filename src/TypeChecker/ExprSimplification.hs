@@ -45,9 +45,7 @@ simplifyExpr (EOr _ ELitFalse{} v) = return v
 simplifyExpr (EAnd _ v ELitTrue{}) = return v
 simplifyExpr (EOr _ v ELitFalse{}) = return v
 
-
-
-simplifyExpr t = return $ t
+simplifyExpr t = return t
 
 genStrCall:: TCU.Type -> String -> Expr AllocType -> Expr AllocType -> Expr AllocType
 genStrCall r n v1 v2  = EApp (RValue r) (EVar (RValue $ TCU.Fun r [TCU.Str, TCU.Str]) (Ident n)) [v1, v2]
