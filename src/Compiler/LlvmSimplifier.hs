@@ -1,7 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 module Compiler.LlvmSimplifier where
 
-import Llvm
+import MyLlvm.Llvm
 import Data.List
 import Common.Utils
 import Compiler.ILTransformerCommon
@@ -13,7 +13,14 @@ import Control.Lens
 import Debug.Trace
 
 simplifyLlvm::LlvmBlocks -> LlvmBlocks
-simplifyLlvm = untilStabilize (compactBlocks . globalCommonSimplification . simplifyConstants . removeSingleValuePhis)
+simplifyLlvm = untilStabilize (
+    removeEmptyBlocks .
+    removeUnusedVariables .
+    compactBlocks .
+    globalCommonSimplification .
+    simplifyConstants .
+    removeSingleValuePhis
+  )
 
 -- przy przekształcaniu do ssa potrafią powstać %v = phi [%v, %1], [%c, %3] więc podmieniamy %v na %c 
 removeSingleValuePhis::LlvmBlocks -> LlvmBlocks
@@ -53,7 +60,8 @@ globalCommonSimplification b =
             [] -> prop
             ((i,r):_) -> let pblocks = M.elems $ M.restrictKeys (_blocks prop) r in
                          let correctAssigns = filter correctStmts $ flatMap blockStmts pblocks in
-                         let map = [(v,e) | Assignment v e <- correctAssigns] in
+                         let inserts = [(v, ExtractV a (fromInteger $ head i)) | Assignment a (InsertV _ v i) <- correctAssigns] in
+                         let map = [(v,e) | Assignment v e <- correctAssigns] ++ inserts in
                          let procBlock = _blocks prop M.! i in
                          let reducibleStmts = [(a, nv, fst $ head $ filter (( == ne) . snd) map)
                                 | a@(Assignment nv ne) <- blockStmts procBlock, any (( == ne) . snd) map] in
@@ -90,6 +98,45 @@ compactBlocks b =
                  let fBlocks = M.elems $ M.map (replaceVars (varLabel sBlock) (varLabel pBlock)) $ _blocks nProp in
                  compactBlocks fBlocks
   where varLabel block = LMLocalVar (blockLabel block) LMLabel
+
+
+removeUnusedVariables::E LlvmBlocks
+removeUnusedVariables b =
+  let unused = unusedVariables b in
+  case unused of
+    [] -> b
+    a:_ -> let mapped = map (mapStmtInBlock (removeAssignment a)) b in
+           let removedNops = map (mapStmtsInBlock (filter ( /= Nop))) mapped in
+           removeUnusedVariables removedNops
+  where removeAssignment v (Assignment av c@Call{}) | v == av = Expr c
+        removeAssignment v (Assignment av _) | v == av = Nop
+        removeAssignment _ s = s
+
+-- TODO fix, potrafią rozwalić ify, zastąpić przez select jeśli mi się chce
+removeEmptyBlocks::E LlvmBlocks
+removeEmptyBlocks b =
+  let pInfo = buildPropagationInfo b in
+  let usedVars = flatMap usedVariablesS [a | a@(Assignment _ Phi{}) <- flatMap blockStmts b] in
+  let emptyBlocks = [(e,i, t, l, used, preds) | (i, e) <- M.toList $ _blocks pInfo,
+                                           [Branch t] <- [blockStmts e],
+                                           l <- [LMLocalVar (blockLabel e) LMLabel],
+                                           used <- [l `elem` usedVars],
+                                           preds <- [fromMaybe [] $ _preds pInfo M.!? i ] ] in
+  let filtered = filter (\(_,_,_,_,u,p) -> not u) emptyBlocks in
+  case filtered of
+    [] -> b
+    (e,i,t,l,False, _):_ -> let nBlocks = _blocks pInfo & M.filterWithKey(\k _ -> k /= i) & M.elems in
+                            let repl = map (replaceVars l t) nBlocks in
+                            removeEmptyBlocks repl
+    (e,i,t,l,True, [p]):_ -> let nBlocks = _blocks pInfo & M.filterWithKey(\k _ -> k /= i) & M.elems in
+                             let pBlockLabel = LMLocalVar (_blocks pInfo M.! p & blockLabel) LMLabel in
+                             let repl = map (mapStmtInBlock (replaceInPhi l pBlockLabel . replaceInReturn l t)) nBlocks in
+                             removeEmptyBlocks repl
+  where replaceInReturn f t (Branch v) = Branch (replaceVarInVar f t v)
+        replaceInReturn f t (BranchIf c ift iff) = BranchIf c (replaceVarInVar f t ift) (replaceVarInVar f t iff)
+        replaceInReturn _ _ s = s
+        replaceInPhi f t a@(Assignment _ Phi{}) = replaceVarsInStmt f t a
+        replaceInPhi _ _ a = a
 
 
 buildPropagationInfo::LlvmBlocks -> PropagationInfo

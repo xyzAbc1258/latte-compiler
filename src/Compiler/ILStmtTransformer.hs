@@ -3,7 +3,7 @@ module Compiler.ILStmtTransformer where
 import AbsLatte as A
 import Compiler.ILTransformerCommon
 import TypeChecker.TypeCheckUtils as TCU
-import Llvm
+import MyLlvm.Llvm
 import Compiler.ILExprTransformer
 import Control.Monad.State
 

@@ -3,7 +3,7 @@ module Compiler.ILExprTransformer where
 
 import AbsLatte as A
 import Compiler.ILTransformerCommon
-import Llvm
+import MyLlvm.Llvm
 import TypeChecker.TypeCheckUtils as TCU
 import Control.Monad
 import Unique (getUnique)
@@ -15,10 +15,10 @@ number64 a = LMLitVar (LMIntLit a i64)
 
 transformRExpr:: Expr TCU.Type -> StmtWriter LlvmVar
 
-transformRExpr (ELitInt _ v) = return ( LMLitVar $ LMIntLit v i32)
+transformRExpr (ELitInt _ v) = return ( litNum v i32)
 
-transformRExpr ELitTrue{} = return (LMLitVar $ LMIntLit 1 i1)
-transformRExpr ELitFalse{} = return (LMLitVar $ LMIntLit 0 i1)
+transformRExpr ELitTrue{} = return (litNum 1 i1)
+transformRExpr ELitFalse{} = return (litNum 0 i1)
 
 transformRExpr (EString _ nv) = do
   v <- lift $ lift $ createConstString nv
@@ -58,9 +58,14 @@ transformRExpr (EVar t (Ident name)) = do
           t | t == vType -> return v
           t -> sAssign vType (Cast LM_Bitcast v vType)
 
-transformRExpr e@(EFldNoAcc t obj num) = do
-  n1 <- transformLExpr e
-  sAssign (pLower $ getVarType n1) (Load n1)
+transformRExpr e@(EFldNoAcc t obj num) =
+  case extract obj of
+    TCU.Array{} -> do -- dostęp po długości tablicy
+                     a <- transformRExpr obj
+                     sAssign i32 (ExtractV a 0)
+    _ -> do
+           n1 <- transformLExpr e
+           sAssign (pLower $ getVarType n1) (Load n1)
 
 transformRExpr e@(EArrAcc t a ind) = do
   n1 <- transformLExpr e
@@ -69,14 +74,13 @@ transformRExpr e@(EArrAcc t a ind) = do
 transformRExpr (ENewObj t@(TCU.Class name) _) = do
   let pt@(LMPointer nt) = valTType t
   virtArrGlobal <- sGetVar $ "virt_" ++ name
-  let virtArrGlobalPtr = pVarLift virtArrGlobal --TODO Czy to nie powinno być w jednej funkcji zamiast za każdym razem powtarzać ?
+  let virtArrGlobalPtr = pVarLift virtArrGlobal
   sizeCalcOne      <- calcStructSize nt
   tmp1             <- sAssign i8Ptr(Call StdCall malloc [sizeCalcOne] [])
-  addStmt $           callMemset tmp1 sizeCalcOne
   nVar             <- sAssign pt (Cast LM_Bitcast tmp1 pt)
-  virtPtr          <- sAssign (LMPointer $ LMPointer i8Ptr) (GetElemPtr True nVar [number 0, number 0])
-  virtArrToBytePtr <- sAssign (LMPointer i8Ptr) (Cast LM_Bitcast virtArrGlobalPtr (LMPointer i8Ptr))
-  addStmt $           Store virtArrToBytePtr virtPtr
+  virtArrToBytePtr <- sAssign (LMPointer i8Ptr) (GetElemPtr True virtArrGlobalPtr [number 0, number 0])
+  vToSave          <- sAssign nt (InsertV (LMLitVar (LMZeroInitializer nt)) virtArrToBytePtr [0])
+  addStmt $ Store vToSave nVar
   return nVar
 
 transformRExpr e@(ENewArr _ t size) = --do
@@ -88,16 +92,13 @@ transformRExpr e@(EVirtCall rt obj num args) = do
   let argTypes = map getVarType argsV
   objPtr <- transformRExpr obj
   let fType = LMFunction (LlvmFunctionDecl (mkfs "") Internal CC_Fastcc rtt FixedArgs ((getVarType objPtr,[]) : map (,[]) argTypes) Nothing)
-  tmp <- sNewVar i8Ptr
-  let (LMNLocalVar n _) = tmp
-  let fF = LMLocalVar (getUnique n) $ LMPointer fType
   val <- sNewVar rtt
   vTablePtrPtr <- sAssign (LMPointer $ LMPointer i8Ptr) (GetElemPtr True objPtr [number 0, number 0])
   vTablePtr    <- sAssign (LMPointer i8Ptr) (Load vTablePtrPtr)
   fPtrAddr     <- sAssign (LMPointer i8Ptr) (GetElemPtr True vTablePtr [number num])
   fPtr         <- sAssign i8Ptr (Load fPtrAddr)
-  fPtrFin      <- tryLocal fF (Cast LM_Bitcast fPtr (LMPointer fType))
-  addStmt $ (if rt /= TCU.Void then Assignment val else Llvm.Expr) (Call StdCall fPtrFin (objPtr: argsV) [])
+  fPtrFin      <- sAssign (LMPointer fType) (Cast LM_Bitcast fPtr (LMPointer fType))
+  addStmt $ (if rt /= TCU.Void then Assignment val else Expr) (Call StdCall fPtrFin (objPtr: argsV) [])
   return val
 
 transformRExpr (EApp r (EVar fType (Ident fName)) args) = do
@@ -107,7 +108,7 @@ transformRExpr (EApp r (EVar fType (Ident fName)) args) = do
   let (TCU.Fun _ argsExpTypes) = fType
   let realTypes = map extract args
   adjusted <- sequence $ zipWith3 toCorrectType realTypes argsExpTypes vs
-  addStmt $ (if r == TCU.Void then Llvm.Expr else Assignment nValue) (Call StdCall fVar adjusted [])
+  addStmt $ (if r == TCU.Void then Expr else Assignment nValue) (Call StdCall fVar adjusted [])
   return nValue
   where toCorrectType t exp v | t == exp = return v
         toCorrectType t exp v = sAssign (valTType exp) (Cast LM_Bitcast v (valTType exp)) -- może wskazywac na podklasę
@@ -128,10 +129,8 @@ transformLExpr (EFldNoAcc t obj num) = do
 transformLExpr (EArrAcc t a ind) = do
   a1 <- transformRExpr a
   ind1 <- transformRExpr ind
-  n1 <- sAssign (LMPointer $ LMPointer $ valTType t) (GetElemPtr True a1 [number 0, number 1])
-  n2 <- sAssign (LMPointer $ valTType t) (Load n1)
-  forceRememberLocal n2 (Load n1)
-  sAssign (LMPointer $ valTType t) (GetElemPtr True n2 [ind1])
+  n1 <- sAssign (LMPointer $ valTType t) (ExtractV a1 1)
+  sAssign (LMPointer $ valTType t) (GetElemPtr True n1 [ind1])
 
 transformLExpr (ENewArr _ t size) = do
   n1 <- transformRExpr size
@@ -140,21 +139,16 @@ transformLExpr (ENewArr _ t size) = do
   let structType = map2Type (A.Array None t)
   let zero = number 0
   sizeCalcOne <- calcStructSize elemType
-  sext        <- sAssign i64 (Cast Llvm.LM_Sext n1 i64)
+  sext        <- sAssign i64 (Cast LM_Sext n1 i64)
   allSize     <- sAssign i64 (LlvmOp LM_MO_Mul sizeCalcOne sext)
-  tmp1        <- sAssign i8Ptr (Call StdCall malloc [number64 8] [])
-  addStmt $ callMemset tmp1 (number64 8)
-  arrPtr      <- sAssign (LMPointer structType) (Cast LM_Bitcast tmp1 (LMPointer structType))
-  sizePtr     <- sAssign (LMPointer i32) (GetElemPtr True arrPtr [zero, zero])
-  addStmt $ Store n1 sizePtr
-  forceRememberLocal n1 (Load sizePtr)
+  arr1        <- sAssign structType (InsertV (LMLitVar (LMUndefLit structType)) n1 [0])
   tmp2        <- sAssign i8Ptr (Call StdCall malloc [allSize] [])
   addStmt $ callMemset tmp2 allSize
   tmpContPtr  <- sAssign (LMPointer elemType) (Cast LM_Bitcast tmp2 (LMPointer elemType))
-  contentPtr  <- sAssign (LMPointer $ LMPointer elemType) (GetElemPtr True arrPtr [zero, number 1])
-  addStmt $ Store tmpContPtr contentPtr
-  forceRememberLocal tmpContPtr (Load contentPtr)
-  return arrPtr
+  arr2        <- sAssign structType (InsertV arr1 tmpContPtr [1])
+  forceRememberLocal n1 (ExtractV arr2 0)
+  forceRememberLocal tmpContPtr (ExtractV arr2 1)
+  return arr2
 
 transformLExpr e =  sNewVar $ mapTypes $ extract e --Tu będą błędy :)
 

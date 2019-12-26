@@ -7,7 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 module Compiler.PhiPropagator where
 
-import Llvm
+import MyLlvm.Llvm
 import Data.List
 import Control.Monad
 import Common.Utils

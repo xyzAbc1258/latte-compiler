@@ -1,6 +1,6 @@
 module Compiler.ILTranformer where
 
-import Llvm
+import MyLlvm.Llvm
 import AbsLatte as A
 import TypeChecker.TypeCheckUtils as TCU
 import FastString (mkFastString)

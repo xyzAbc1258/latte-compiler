@@ -8,7 +8,7 @@ module Compiler.ILTransformerCommon(
   module Control.Monad.State
 ) where
 
-import Llvm
+import MyLlvm.Llvm
 import AbsLatte as A
 import TypeChecker.TypeCheckUtils as TCU
 import Control.Monad.State
@@ -17,8 +17,10 @@ import FastString (mkFastString)
 import Control.Lens
 import Control.Monad.Writer
 import Data.Maybe
-import Llvm.PpLlvm
-import Control.Lens(_1,_2)
+import MyLlvm.PpLlvm
+import Common.Utils
+import qualified Data.Set as S
+import Data.List
 
 mkfs = mkFastString
 
@@ -35,7 +37,7 @@ valTType = valType . mapTypeBack
 
 valType::A.Type a -> LlvmType
 valType t@A.Class{} = LMPointer $ map2Type t
-valType t@A.Array{} = LMPointer $ map2Type t
+--valType t@A.Array{} = LMPointer $ map2Type t
 valType t = map2Type t
 
 map2Type::A.Type a -> LlvmType
@@ -150,7 +152,7 @@ memset = LMGlobalVar (mkfs "llvm.memset.p0i8.i64") (LMFunction LlvmFunctionDecl{
   decName = mkfs "llvm.memset.p0i8.i64",
   funcLinkage = External,
   funcCc = CC_Fastcc,
-  decReturnType = Llvm.LMVoid,
+  decReturnType = LMVoid,
   decVarargs = FixedArgs,
   decParams = [(i8Ptr,[]),(i8,[]),(i64,[]),(i32,[]),(i1,[])],
   funcAlign = Nothing
@@ -160,7 +162,7 @@ litNum::Integer -> LlvmType -> LlvmVar
 litNum v t = LMLitVar (LMIntLit v t)
 
 callMemset::LlvmVar -> LlvmVar -> LlvmStatement
-callMemset ptr size = Llvm.Expr (Call StdCall memset [ptr, litNum 0 i8, size, litNum 1 i32, litNum 0 i1] [])
+callMemset ptr size = Expr (Call StdCall memset [ptr, litNum 0 i8, size, litNum 1 i32, litNum 0 i1] [])
 
 newtype LocalT s m a = LocalT {runLocal:: s -> m (a, s)} --W praktyce to jest stan, ale nie chciałem mieszać z monada Translator
 
@@ -242,7 +244,8 @@ replaceVarsInExpr f t (GetElemPtr b v args) = GetElemPtr b (rviv f t v) (map (rv
 replaceVarsInExpr f t (Cast op v typ) = Cast op (rviv f t v) typ
 replaceVarsInExpr f t (Call typ on args w) = Call typ (rviv f t on) (map (rviv f t ) args ) w
 replaceVarsInExpr f t (Phi typ p) = Phi typ $ map (\(a,b) -> (rviv f t a, rviv f t b))  p
-
+replaceVarsInExpr f t (ExtractV s i) = ExtractV (rviv f t s) i
+replaceVarsInExpr f t (InsertV s v i) = InsertV (rviv f t s) (rviv f t v) i
 
 
 isSimplifiable::LlvmExpression -> Bool
@@ -286,3 +289,41 @@ simplifyLlvmCmp LM_CMP_Sle v1 v2 = liftCmpOp (<=) v1 v2
 simplifyExpr::LlvmExpression -> LlvmVar
 simplifyExpr (LlvmOp m v1 v2) = simplifyLlvmOp m v1 v2
 simplifyExpr (Compare m v1 v2) = simplifyLlvmCmp m v1 v2
+
+unusedVariables::LlvmBlocks -> [LlvmVar]
+unusedVariables b =
+  let used = nub $ filter (not . isConst) $ usedVariablesBs b in
+  let assigned = assignedVariablesBs b in
+  [a | a <- assigned, a `notElem` used]
+
+assignedVariablesBs::LlvmBlocks -> [LlvmVar]
+assignedVariablesBs = flatMap assignedVariablesB
+
+assignedVariablesB::LlvmBlock -> [LlvmVar]
+assignedVariablesB b = [v | Assignment v _ <- blockStmts b]
+
+usedVariablesBs::LlvmBlocks -> [LlvmVar]
+usedVariablesBs = flatMap usedVariablesB
+
+usedVariablesB::LlvmBlock -> [LlvmVar]
+usedVariablesB = flatMap usedVariablesS . blockStmts
+
+usedVariablesS::LlvmStatement -> [LlvmVar]
+usedVariablesS (Assignment _ e) = usedVariablesE e
+usedVariablesS (Expr e) = usedVariablesE e
+usedVariablesS (Store f t) = [f, t]
+usedVariablesS (Branch v) = [v]
+usedVariablesS (BranchIf i t f) = [i, t, f]
+usedVariablesS (Return v) = maybeToList v
+
+
+usedVariablesE::LlvmExpression -> [LlvmVar]
+usedVariablesE (GetElemPtr _ p a) = p : a
+usedVariablesE (Call _ f a _) = f : a
+usedVariablesE (Compare _ f s) = [f, s]
+usedVariablesE (LlvmOp _ f s) = [f, s]
+usedVariablesE (Load p) = [p]
+usedVariablesE (Cast _ v _) = [v]
+usedVariablesE (Phi _ p) = let (v,l) = unzip p in v ++ l
+usedVariablesE (ExtractV s _) = [s]
+usedVariablesE (InsertV s v _) = [s, v]

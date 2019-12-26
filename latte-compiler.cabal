@@ -54,7 +54,12 @@ library
       Compiler.Const
       Compiler.BaseExprFormTransformer,
       Compiler.PhiPropagator,
-      Compiler.LlvmSimplifier
+      Compiler.LlvmSimplifier,
+      MyLlvm.AbsSyn,
+      MyLlvm.MetaData,
+      MyLlvm.PpLlvm,
+      MyLlvm.Types
+      MyLlvm.Llvm
   other-modules:
       Paths_latte_compiler
   hs-source-dirs:
