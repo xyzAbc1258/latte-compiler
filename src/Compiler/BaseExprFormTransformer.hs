@@ -134,7 +134,7 @@ toBaseExpr (ERel a e1 op e2) = (\s -> ERel a s op) <$> toBaseExpr e1 <*> toBaseE
 toBaseExpr (EAnd a e1 e2) = do
   simpl1 <- toBaseExpr e1
   nVar <- makeVar TCU.Bool
-  addStmt $ Decl None (A.Bool None) $ [Init None (varName nVar) simpl1]
+  addStmt $ Decl None (A.Bool None)  [Init None (varName nVar) simpl1]
   (simpl2, s) <- listen $ toBaseExpr e2
   addStmt $ Cond None nVar (BStmt None (Block None (s ++ [Ass None nVar simpl2])))
   return nVar

@@ -60,7 +60,7 @@ transformRExpr (EVar t (Ident name)) = do
 
 transformRExpr e@(EFldNoAcc t obj num) =
   case extract obj of
-    TCU.Array{} -> do -- dostęp po długości tablicy
+    TCU.Array{} -> do -- dostęp do długości tablicy, może niefortunne że jest to też EFldNoAcc...
                      a <- transformRExpr obj
                      sAssign i32 (ExtractV a 0)
     _ -> do
@@ -91,7 +91,7 @@ transformRExpr e@(EVirtCall rt obj num args) = do
   argsV <- mapM transformRExpr args
   let argTypes = map getVarType argsV
   objPtr <- transformRExpr obj
-  let fType = LMFunction (LlvmFunctionDecl (mkfs "") Internal CC_Fastcc rtt FixedArgs ((getVarType objPtr,[]) : map (,[]) argTypes) Nothing)
+  let fType = LMFunction (LlvmFunctionDecl (mkfs "") Internal CC_Ccc rtt FixedArgs ((getVarType objPtr,[]) : map (,[]) argTypes) Nothing)
   val <- sNewVar rtt
   vTablePtrPtr <- sAssign (LMPointer $ LMPointer i8Ptr) (GetElemPtr True objPtr [number 0, number 0])
   vTablePtr    <- sAssign (LMPointer i8Ptr) (Load vTablePtrPtr)
@@ -109,7 +109,7 @@ transformRExpr (EApp r (EVar fType (Ident fName)) args) = do
   let realTypes = map extract args
   adjusted <- sequence $ zipWith3 toCorrectType realTypes argsExpTypes vs
   addStmt $ (if r == TCU.Void then Expr else Assignment nValue) (Call StdCall fVar adjusted [])
-  return nValue
+  return nValue -- TODO to jest lekka ściema :/ ale typechecker powinien sprawić że nic się złego nie stanie
   where toCorrectType t exp v | t == exp = return v
         toCorrectType t exp v = sAssign (valTType exp) (Cast LM_Bitcast v (valTType exp)) -- może wskazywac na podklasę
 

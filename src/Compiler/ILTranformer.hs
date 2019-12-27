@@ -61,12 +61,12 @@ declareFunc (FnDef _ rt (Ident fName) args body) = do
   let var = LMGlobalVar (mkFastString fName)
                            (LMFunction
                               LlvmFunctionDecl{decName = mkFastString fName,
-                                               funcLinkage = Internal, funcCc = CC_Fastcc,
+                                               funcLinkage = ExternallyVisible, funcCc = CC_Ccc,
                                                decReturnType = valType rt,
                                                decVarargs = FixedArgs,
                                                decParams = map (\ s -> (valType s, [])) [t | Arg _ t _ <- args],
                                                funcAlign = Nothing})
-                              Internal
+                              ExternallyVisible
                               Nothing
                               Nothing
                               Constant
@@ -77,7 +77,7 @@ transformVirtArray (VirtArray _ (Ident name) funcDecls) = do
   let gvar = LMGlobalVar
                         (mkFastString name)
                         (LMArray (length funcDecls) i8Ptr)
-                        Internal
+                        ExternallyVisible
                         Nothing
                         Nothing
                         Constant
@@ -95,13 +95,13 @@ transformVirtArray (VirtArray _ (Ident name) funcDecls) = do
 funcDeclToStatic::FuncDec TCU.Type -> Translator LlvmStatic
 funcDeclToStatic (FuncDecl _ r (Ident name) args) = do let funcDecl
                                                              = LlvmFunctionDecl{decName = mkFastString name,
-                                                                                funcLinkage = Internal, funcCc = CC_Fastcc,
+                                                                                funcLinkage = ExternallyVisible, funcCc = CC_Ccc,
                                                                                 decReturnType = valType r, decVarargs = FixedArgs,
                                                                                 decParams = map (\ s -> (valType s, [])) args,
                                                                                 funcAlign = Nothing}
                                                        let func
                                                              = LMGlobalVar (mkFastString name) (LMPointer $ LMFunction funcDecl)
-                                                                 Internal
+                                                                 ExternallyVisible
                                                                  Nothing
                                                                  Nothing
                                                                  Constant

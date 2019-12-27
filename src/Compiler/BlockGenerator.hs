@@ -11,8 +11,10 @@ import qualified Data.Set as Set
 import qualified Data.Map as M
 import Data.List as List
 import Data.Tuple
+import Compiler.BaseExprFormTransformer
+import Control.Monad.Writer (runWriterT)
 
-type LabelGen = State Int
+type LabelGen = State Integer
 
 genLabel:: LabelGen Ident
 genLabel = do
@@ -20,10 +22,11 @@ genLabel = do
   S.modify (1 +)
   return $ Ident $ "label_" ++ show c
 
-toBlockStructure::(Defaultable a) => Program a -> Program a
+
+toBlockStructure::Program TCC.Type -> Program TCC.Type
 toBlockStructure = (`evalState` 0) . ASTM.modify splitStmtsToBlocksA
 
-controls::Stmt a -> Bool
+controls::Stmt TCC.Type -> Bool
 controls Cond{} = True
 controls CondElse {} = True
 controls While {} = True
@@ -31,15 +34,21 @@ controls _ = False
 
 lastLabel = Ident "last"
 
-splitStmtsToBlocksA::(Defaultable a) =>[Stmt a] -> LabelGen [Stmt a]
+splitStmtsToBlocksA::[Stmt TCC.Type] -> LabelGen [Stmt TCC.Type]
 splitStmtsToBlocksA s = do
   let first = Ident "entry"
   stmts <- splitStmtsToBlocks first s lastLabel
   if length stmts  < 2 then return stmts
-  else return $ compactBlocks stmts
+  else return $ entryFirst $ compactBlocks stmts
 
-compactBlocks::(Show a) => [Stmt a] -> [Stmt a]
-compactBlocks s =
+entryFirst::[Stmt TCC.Type] -> [Stmt TCC.Type]
+entryFirst s =
+  let [entry] = [n | n@(NamedBStmt _ (Ident name) _ ) <- s, name == "entry"] in
+  let rest = [n | n@(NamedBStmt _ (Ident name) _ ) <- s, name /= "entry"] in
+  entry : rest
+
+compactBlocks::[Stmt TCC.Type] -> [Stmt TCC.Type]
+compactBlocks s=
   let successors = flatMap successor s in
   let succMap = M.fromList $ groupByFirst successors in
   let predMap = M.fromList $ groupByFirst (map swap successors) in
@@ -63,7 +72,7 @@ findByName id sts =
     l -> error $ show l ++ " $ " ++ show id ++ " $ " ++ show sts
 
 
-successor::(Show a) => Stmt a -> [(Ident,Ident)]
+successor::Stmt TCC.Type -> [(Ident,Ident)]
 successor (NamedBStmt _ _ (Block _ [])) = []
 successor (NamedBStmt _ n (Block _ s)) =
   let l = last s in
@@ -73,12 +82,12 @@ successor (NamedBStmt _ n (Block _ s)) =
     CondJump _ _ r1 r2 -> [(n,r1),(n,r2)]
     Jump _ r -> [(n,r)]
 
-splitStmtsToBlocks::(Defaultable a) =>Ident -> [Stmt a] -> Ident -> LabelGen [Stmt a]
+splitStmtsToBlocks::Ident -> [Stmt TCC.Type] -> Ident -> LabelGen [Stmt TCC.Type]
 splitStmtsToBlocks current s next = do
   let splitted = splitOn controls s
   mapBlocks current splitted next
 
-mapBlocks::(Defaultable a) =>Ident -> [[Stmt a]] -> Ident -> LabelGen[Stmt a]
+mapBlocks::Ident -> [[Stmt TCC.Type]] -> Ident -> LabelGen[Stmt TCC.Type]
 mapBlocks c [] _ = return [VRet getDefault]
 mapBlocks c [h] n = processBlock c h n
 mapBlocks c (h:t) n = do
@@ -86,7 +95,7 @@ mapBlocks c (h:t) n = do
   b <- processBlock c h nextLabel
   (b ++) <$> mapBlocks nextLabel t n
 
-processBlock::(Defaultable a) =>Ident -> [Stmt a] -> Ident -> LabelGen [Stmt a]
+processBlock::Ident -> [Stmt TCC.Type] -> Ident -> LabelGen [Stmt TCC.Type]
 processBlock current [Cond a cond (BStmt _ (Block ba ifT))] next = do
   iftLabel <- genLabel
   condBlock <- genCondBlocks current cond iftLabel next
@@ -132,7 +141,7 @@ processBlock current b next = do
               s -> NamedBStmt v current (Block v $ b ++ [AbsLatte.Jump v next])
   return [s]
 
-genCondBlocks::(Defaultable a) => Ident -> Expr a -> Ident -> Ident -> LabelGen [Stmt a]
+genCondBlocks::Ident -> Expr TCC.Type -> Ident -> Ident -> LabelGen [Stmt TCC.Type]
 genCondBlocks c (EAnd _ v1 v2) t f = do
   mid <- genLabel
   first <- genCondBlocks c v1 mid f
@@ -147,4 +156,12 @@ genCondBlocks c (EOr _ v1 v2) t f = do
 
 genCondBlocks c (Not _ e) t f = genCondBlocks c e f t
 
-genCondBlocks c e t f = let d = getDefault in return [NamedBStmt d c (Block d [AbsLatte.CondJump d e t f])]
+genCondBlocks c e t f = do
+  (ne, s) <- runWriterT $ toBaseExpr e
+  let d = getDefault
+  case s of 
+    [] -> return [NamedBStmt d c (Block d [AbsLatte.CondJump d e t f])]
+    _ -> do 
+           n <- genLabel
+           nst <- splitStmtsToBlocks c s n
+           return $ nst ++ [NamedBStmt d n (Block d [AbsLatte.CondJump d ne t f])]

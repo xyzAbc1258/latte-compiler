@@ -81,7 +81,7 @@ executable latte-compiler-exe
       Paths_latte_compiler
   hs-source-dirs:
       app
-  ghc-options: -package ghc-8.6.5
+  ghc-options: -package ghc-8.6.5 -rtsopts -prof
   build-depends:
       array
     , base >=4.7 && <5

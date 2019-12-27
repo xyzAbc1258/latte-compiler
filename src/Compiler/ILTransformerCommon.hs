@@ -139,7 +139,7 @@ malloc::LlvmVar
 malloc = LMGlobalVar (mkfs "malloc") (LMFunction LlvmFunctionDecl{
   decName = mkfs "malloc",
   funcLinkage = External,
-  funcCc = CC_Fastcc,
+  funcCc = CC_Ccc,
   decReturnType = i8Ptr,
   decVarargs = FixedArgs,
   decParams = [(i64,[])],
@@ -151,7 +151,7 @@ memset::LlvmVar
 memset = LMGlobalVar (mkfs "llvm.memset.p0i8.i64") (LMFunction LlvmFunctionDecl{
   decName = mkfs "llvm.memset.p0i8.i64",
   funcLinkage = External,
-  funcCc = CC_Fastcc,
+  funcCc = CC_Ccc,
   decReturnType = LMVoid,
   decVarargs = FixedArgs,
   decParams = [(i8Ptr,[]),(i8,[]),(i64,[]),(i32,[]),(i1,[])],
