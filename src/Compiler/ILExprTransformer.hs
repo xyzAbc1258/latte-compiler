@@ -177,7 +177,7 @@ calcStructSize t | t == i1 = return $ number64 1
 calcStructSize t | t == i8 = return $ number64 1
 calcStructSize t | t == i32 = return $ number64 4
 calcStructSize t | t == i64 = return $ number64 8
-calcStructSize (LMPointer _) = return $ number64 4 --TODO czy zawsze ? ...
+calcStructSize (LMPointer _) = return $ number64 8 --TODO czy zawsze ? ... Może lepiej za dużo niż za mało
 calcStructSize elemType = do
   let elemPtrType = LMPointer elemType
   sizeCalcPtr <- sAssign elemPtrType (GetElemPtr False (LMLitVar (LMNullLit elemPtrType)) [number 1])

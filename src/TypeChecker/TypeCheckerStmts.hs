@@ -92,7 +92,7 @@ checkStmts (Cond _ cond ifTrue : t) = do
      _ -> mThrowError  "Error in typing if statement" -- Wewnętrzny błąd nie powinien nigdy wystąpić :)
 
 checkStmts (CondElse v cond ifT ifF : t) | isEmptyStmt ifF = checkStmts (Cond v cond ifT : t)
-checkStmts (CondElse v cond ifT ifF : t) | isEmptyStmt ifT = checkStmts (Cond v (Neg v cond) ifF : t)
+checkStmts (CondElse v cond ifT ifF : t) | isEmptyStmt ifT = checkStmts (Cond v (Not v cond) ifF : t)
 checkStmts (CondElse _ cond ifTrue ifElse : t) = do
   condExpr <- checkExpr cond
   expectsTypeAE TCC.Bool condExpr
