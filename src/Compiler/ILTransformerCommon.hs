@@ -252,6 +252,7 @@ isSimplifiable::LlvmExpression -> Bool
 isSimplifiable (LlvmOp LM_MO_SDiv _ v2) | isConst v2 && getValFromConst v2 == 0 = False
 isSimplifiable (LlvmOp _ v1 v2) = isConst v1 && isConst v2
 isSimplifiable (Compare _ v1 v2) = isConst v1 && isConst v2
+isSimplifiable (Cast LM_Sext v1 t) = isConst v1
 isSimplifiable _ = False
 
 isConst::LlvmVar -> Bool
@@ -289,6 +290,7 @@ simplifyLlvmCmp LM_CMP_Sle v1 v2 = liftCmpOp (<=) v1 v2
 simplifyExpr::LlvmExpression -> LlvmVar
 simplifyExpr (LlvmOp m v1 v2) = simplifyLlvmOp m v1 v2
 simplifyExpr (Compare m v1 v2) = simplifyLlvmCmp m v1 v2
+simplifyExpr (Cast LM_Sext (LMLitVar (LMIntLit v _)) t) = LMLitVar $ LMIntLit v t 
 
 unusedVariables::LlvmBlocks -> [LlvmVar]
 unusedVariables b =

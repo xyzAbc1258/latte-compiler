@@ -8,3 +8,4 @@ test
 !test/Spec.hs
 *.bc
 *.ll
+.stack-work — kopia

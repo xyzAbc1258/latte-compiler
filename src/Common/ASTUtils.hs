@@ -116,3 +116,27 @@ isEmptyStmt :: Stmt a -> Bool
 isEmptyStmt Empty{} = True
 isEmptyStmt (BStmt _ (Block _ l)) = all isEmptyStmt l
 isEmptyStmt _ = False
+
+-- Najbardziej podstawowa wersja sprawdzania efektów ubocznych
+isPure::Expr a -> Bool
+isPure EString{} = True
+isPure EVar{} = True
+isPure ELitInt{} = True
+isPure ELitTrue{} = True
+isPure ELitFalse{} = True
+isPure (ERel _ e1 _ e2) = isPure e1 && isPure e2
+isPure (EAdd _ e1 _ e2) = isPure e1 && isPure e2
+isPure (EMul _ e1 _ e2) = isPure e1 && isPure e2
+isPure EVirtCall{} = False
+isPure EApp{} = False
+isPure EFldNoAcc{} = False
+isPure EFldAcc{} = False
+isPure EArrAcc{} = False
+isPure (EAnd _ e1 e2) = isPure e1 && isPure e2
+isPure (EOr _ e1 e2) = isPure e1 && isPure e2
+isPure ENull{} = True
+isPure ENewObj{} = False
+isPure ENewArr{} = False
+isPure (Neg _ e) = isPure e
+isPure (Not _ e) = isPure e
+isPure _ = False -- jakbym coś pominął

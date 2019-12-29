@@ -5,6 +5,7 @@ import TypeChecker.TypeCheckUtils as TCU
 import Control.Monad.Writer
 import Control.Monad.State
 import qualified Common.ASTModifier as ASTM
+import Common.ASTUtils
 
 type M = WriterT [Stmt TCU.Type] (State Integer)
 
@@ -62,18 +63,9 @@ toBaseStmtForm (CondElse a cond ift iff) = do
                     c -> BStmt None (Block None c)
   addStmt $ CondElse a sCond nT nF
 
-
-toBaseStmtForm s@(While a cond b) = addStmt s
-  --(v, s) <- listen $ toBaseExpr cond
-  --let woDecls = join $ map woDecl s
-  --(_, sb) <- catch $ toBaseStmtForm b
-  --let nb = case sb of
-  --            [BStmt t1 (Block t2 c)] -> BStmt t1 (Block t2 (c ++ woDecls))
-  --            [a] -> BStmt None (Block None (a:woDecls))
-  --            c -> BStmt None (Block None (c ++ woDecls))
-  --mapM_ addStmt s
-  --addStmt $ While a v nb
-
+--While jest bardziej skomplikowany bo ewalucacja musi zachodzić przy każdym obronie pętli
+toBaseStmtForm s@(While a cond b) = addStmt s 
+  
 toBaseStmtForm (BStmt a (Block b s)) = do
   nst <- BStmt a . Block b . join . snd <$> mapAndUnzipM (catch . toBaseStmtForm) s
   addStmt nst
@@ -91,6 +83,8 @@ toBaseStmtForm e@Incr{} = addStmt e
 toBaseStmtForm t = error $ "Non exhaustive " ++ show t
 
 toBaseExpr::Expr TCU.Type -> M (Expr TCU.Type)
+
+toBaseExpr e | isPure e = return e
 
 toBaseExpr e@(EVar a _) = return e
 
@@ -114,11 +108,11 @@ toBaseExpr (EApp a f args) = do
   simplArgs <- mapM toBaseExpr args
   return $ EApp a simplF simplArgs
 
-toBaseExpr e@(EString a _) = return e
+toBaseExpr e@EString{} = return e
 
-toBaseExpr e@(ENull a s) = return e
+toBaseExpr e@ENull{} = return e
 
-toBaseExpr e@(ENewObj a s) = return e
+toBaseExpr e@ENewObj{} = return e
 
 toBaseExpr (ENewArr a t size) =  ENewArr a t <$> toBaseExpr size
 
