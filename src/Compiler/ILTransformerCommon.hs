@@ -30,7 +30,7 @@ mapTypes TCU.Bool = i1
 mapTypes TCU.Void = LMVoid
 mapTypes TCU.Str = i8Ptr
 mapTypes (TCU.Array t) = LMStruct [i32, LMPointer $ valType $ mapTypeBack t]
-mapTypes (TCU.Class name) = LMAlias (mkFastString name, LMVoid)
+mapTypes (TCU.Class name) = LMAlias (mkfs name, LMVoid)
 
 valTType::TCU.Type -> LlvmType
 valTType = valType . mapTypeBack
@@ -79,7 +79,7 @@ rememberLocal v e =
 
 tryLocal::LlvmVar -> LlvmExpression -> StmtWriter LlvmVar
 tryLocal nv e = do
-  exists <- map fst . filter (( == e) . snd) . (^. _2) <$> getLocal
+  exists <- map fst . filter (( == e) . snd) . snd <$> getLocal
   case exists of
     [v] -> return v
     [] -> do
@@ -88,10 +88,10 @@ tryLocal nv e = do
             return nv
 
 addVar::String -> LlvmVar -> Translator ()
-addVar n v = modify (over _1 (M.insert n v))
+addVar n v = modify (_1 %~ M.insert n v)
 
 getVar::String -> Translator LlvmVar
-getVar n = gets ((M.! n) . fst)
+getVar n = gets (getFMap n . fst)
 
 sGetVar::String -> StmtWriter LlvmVar
 sGetVar = lift . lift . getVar
@@ -107,10 +107,14 @@ sAddLocalVar n v b = do
     _ -> modLocal (_1 %~ M.insert n (v, b))
 
 hasLocalVar::String -> StmtWriter Bool
-hasLocalVar n = isJust . (M.!? n) . (^. _1) <$> getLocal
+hasLocalVar n = isJust . (M.!? n) . fst <$> getLocal
+
+
+getFMap::(Show k, Ord k) => k -> M.Map k v -> v
+getFMap k m = fromMaybe (error $ "not found: " ++ show k) (m M.!? k)
 
 getLocalVar::String -> StmtWriter LlvmVar
-getLocalVar n = fst . (M.! n) . (^. _1) <$> getLocal
+getLocalVar n = fst . (getFMap n) . fst <$> getLocal
 
 createConstString::String -> Translator LlvmVar
 createConstString s = do
@@ -120,7 +124,7 @@ createConstString s = do
     Just v -> return v
     Nothing -> do
                   c <- gets snd
-                  modify (over _2 ( + 1))
+                  modify (_2 %~ ( + 1))
                   let nVar = LMGlobalVar (mkfs $ "_cstr_" ++ show c) (LMArray (length s +1) i8) Private Nothing Nothing Constant
                   addVar ns nVar
                   return nVar
@@ -129,7 +133,7 @@ createConstString s = do
 newVar::LlvmType -> Translator LlvmVar
 newVar t = do
   c <- gets snd
-  modify (over _2 ( + 1))
+  modify (_2 %~ ( + 1))
   return $ LMNLocalVar (mkfs $ "var" ++  show c) t
 
 sNewVar::LlvmType -> StmtWriter LlvmVar
@@ -250,7 +254,12 @@ replaceVarsInExpr f t (InsertV s v i) = InsertV (rviv f t s) (rviv f t v) i
 
 isSimplifiable::LlvmExpression -> Bool
 isSimplifiable (LlvmOp LM_MO_SDiv _ v2) | isConst v2 && getValFromConst v2 == 0 = False
-isSimplifiable (LlvmOp _ v1 v2) = isConst v1 && isConst v2
+isSimplifiable (LlvmOp LM_MO_Add (LMLitVar (LMIntLit 0 _)) v) = True
+isSimplifiable (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = True
+isSimplifiable (LlvmOp LM_MO_Sub v (LMLitVar (LMIntLit 0 _))) = True
+isSimplifiable (LlvmOp LM_MO_Mul (LMLitVar (LMIntLit 1 _)) v) = True
+isSimplifiable (LlvmOp LM_MO_Mul v (LMLitVar (LMIntLit 1 _))) = True
+isSimplifiable (LlvmOp _ v1 v2) | isConst v1 && isConst v2 = True
 isSimplifiable (Compare _ v1 v2) = isConst v1 && isConst v2
 isSimplifiable (Cast LM_Sext v1 t) = isConst v1
 isSimplifiable _ = False
@@ -271,26 +280,31 @@ liftOp op v1 v2 = litNum (op (getValFromConst v1) (getValFromConst v2)) $ getVar
 liftCmpOp::CmpOp Integer -> BinOp LlvmVar
 liftCmpOp op v1 v2 = litNum (if op (getValFromConst v1) (getValFromConst v2) then 1 else 0) i1
 
-simplifyLlvmOp::LlvmMachOp -> LlvmVar -> LlvmVar -> LlvmVar
-simplifyLlvmOp LM_MO_Add v1 v2 = liftOp (+) v1 v2
-simplifyLlvmOp LM_MO_Sub v1 v2 = liftOp (-) v1 v2
-simplifyLlvmOp LM_MO_Mul v1 v2 = liftOp (*) v1 v2
-simplifyLlvmOp LM_MO_SDiv v1 v2 = liftOp div v1 v2
-simplifyLlvmOp LM_MO_And v1 v2 = liftOp (\a b -> if (a + b) == 2 then 1 else 0) v1 v2
-simplifyLlvmOp LM_MO_Or v1 v2 = liftOp (\a b -> if (a + b) > 0 then 1 else 0) v1 v2
+simplifyLlvmOp::LlvmMachOp -> BinOp LlvmVar
+simplifyLlvmOp LM_MO_Add = liftOp (+)
+simplifyLlvmOp LM_MO_Sub = liftOp (-)
+simplifyLlvmOp LM_MO_Mul = liftOp (*)
+simplifyLlvmOp LM_MO_SDiv = liftOp div
+simplifyLlvmOp LM_MO_And = liftOp (\a b -> if (a + b) == 2 then 1 else 0)
+simplifyLlvmOp LM_MO_Or = liftOp (\a b -> if (a + b) > 0 then 1 else 0)
 
 simplifyLlvmCmp::LlvmCmpOp -> LlvmVar -> LlvmVar -> LlvmVar
-simplifyLlvmCmp LM_CMP_Eq  v1 v2 = liftCmpOp (==) v1 v2
-simplifyLlvmCmp LM_CMP_Ne  v1 v2 = liftCmpOp (/=) v1 v2
-simplifyLlvmCmp LM_CMP_Sgt v1 v2 = liftCmpOp (>) v1 v2
-simplifyLlvmCmp LM_CMP_Sge v1 v2 = liftCmpOp (>=) v1 v2
-simplifyLlvmCmp LM_CMP_Slt v1 v2 = liftCmpOp (<) v1 v2
-simplifyLlvmCmp LM_CMP_Sle v1 v2 = liftCmpOp (<=) v1 v2
+simplifyLlvmCmp LM_CMP_Eq  = liftCmpOp (==)
+simplifyLlvmCmp LM_CMP_Ne  = liftCmpOp (/=)
+simplifyLlvmCmp LM_CMP_Sgt = liftCmpOp (>)
+simplifyLlvmCmp LM_CMP_Sge = liftCmpOp (>=)
+simplifyLlvmCmp LM_CMP_Slt = liftCmpOp (<)
+simplifyLlvmCmp LM_CMP_Sle = liftCmpOp (<=)
 
 simplifyExpr::LlvmExpression -> LlvmVar
+simplifyExpr (LlvmOp LM_MO_Add (LMLitVar (LMIntLit 0 _)) v) = v
+simplifyExpr (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = v
+simplifyExpr (LlvmOp LM_MO_Sub v (LMLitVar (LMIntLit 0 _))) = v
+simplifyExpr (LlvmOp LM_MO_Mul (LMLitVar (LMIntLit 1 _)) v) = v
+simplifyExpr (LlvmOp LM_MO_Mul v (LMLitVar (LMIntLit 1 _))) = v
 simplifyExpr (LlvmOp m v1 v2) = simplifyLlvmOp m v1 v2
 simplifyExpr (Compare m v1 v2) = simplifyLlvmCmp m v1 v2
-simplifyExpr (Cast LM_Sext (LMLitVar (LMIntLit v _)) t) = LMLitVar $ LMIntLit v t 
+simplifyExpr (Cast LM_Sext (LMLitVar (LMIntLit v _)) t) = LMLitVar $ LMIntLit v t
 
 unusedVariables::LlvmBlocks -> [LlvmVar]
 unusedVariables b =

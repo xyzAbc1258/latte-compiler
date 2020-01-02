@@ -129,7 +129,7 @@ toBaseExpr (EAnd a e1 e2) = do
   simpl1 <- toBaseExpr e1
   nVar <- makeVar TCU.Bool
   addStmt $ Decl None (A.Bool None)  [Init None (varName nVar) simpl1]
-  (simpl2, s) <- listen $ toBaseExpr e2
+  (simpl2, s) <- catch $ toBaseExpr e2
   addStmt $ Cond None nVar (BStmt None (Block None (s ++ [Ass None nVar simpl2])))
   return nVar
 
@@ -137,7 +137,7 @@ toBaseExpr (EOr a e1 e2) = do
   simpl1 <- toBaseExpr e1
   nVar <- makeVar TCU.Bool
   addStmt $ Decl None (A.Bool None) [Init None (varName nVar) simpl1]
-  (simpl2, s) <- listen $ toBaseExpr e2
+  (simpl2, s) <- catch $ toBaseExpr e2
   addStmt $ Cond None (Not TCU.Bool nVar) (BStmt None (Block None (s ++ [Ass None nVar simpl2])))
   return nVar
 

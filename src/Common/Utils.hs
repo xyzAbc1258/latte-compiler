@@ -80,3 +80,7 @@ untilStabilize f = runIdentity . untilStabilizeM (Identity . f)
 
 maybeM::(Monad m) => b -> (a -> m b) -> Maybe a -> m b
 maybeM def = maybe (return def)
+
+maybeLast::[a] -> Maybe a
+maybeLast [] = Nothing
+maybeLast a = Just $ last a

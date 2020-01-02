@@ -138,7 +138,7 @@ checkFnDef (FnDef pos rType (Ident name) args block@(Block _ stmts)) = do
   let (Block n s) = blockE
   let nBlock = Block n (decls ++ s)
   unless (checkHasReturn (head allTypes == TCC.Void) s) $ throwPosError "There is a branch without return statement"
-  return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) nArgs) nBlock]
-
-
-
+  case (head allTypes, maybeLast s == Just (VRet TCC.Void)) of
+    (TCC.Void, False) -> return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) nArgs) (Block n (decls ++ s ++ [VRet TCC.Void]))]
+    _ -> return [FnDef TCC.None (None <$ rType) (Ident name) (zipWith (<$) (tail allTypes) nArgs) nBlock]
+    -- inaczej źle mi się generują rzeczy w block generarator

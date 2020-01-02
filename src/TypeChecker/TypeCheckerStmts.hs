@@ -128,7 +128,11 @@ checkStmts (For _ typ (Ident v) collection body : t) = do
   (nName, varMap) <- declareLocalVariable v nt
   bodyExpr <- case body of
     BStmt _ (Block _ l) -> (: []) . BStmt None . Block None <$> local (varMap . (emptyEnv :)) (checkStmts l)
-    l -> local (varMap . (emptyEnv :)) $ checkStmts [l]
+    l -> do
+            r <- local (varMap . (emptyEnv :)) (checkStmts [l]) -- jedna instrukcja może zwrócić dużo
+            case r of
+              [nl] -> return [nl]
+              x -> return [BStmt None (Block None x)]
   let [sb] = bodyExpr
   iteratorIdent <- newIdentifier
   let decl = Decl None (AbsLatte.Int None) [Init None (Ident iteratorIdent) (ELitInt TCC.Int 0)]

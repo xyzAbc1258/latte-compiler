@@ -14,7 +14,7 @@ import Debug.Trace
 
 simplifyLlvm::LlvmBlocks -> LlvmBlocks
 simplifyLlvm = untilStabilize (
-    removeEmptyBlocks .
+    --removeEmptyBlocks .
     removeUnusedVariables .
     compactBlocks .
     globalCommonSimplification .
@@ -163,8 +163,8 @@ getDominatingBlocks::Int -> PropagationInfo -> S.Set Int
 getDominatingBlocks i p =
   let paths = tail <$> getSimplePathsToEntry i p in
   let sets = map S.fromList paths in
-  let common = foldl1 S.intersection sets in
-  common
+  if null sets then S.empty
+  else foldl1 S.intersection sets
 
 
 getSimplePathsToEntry::Int -> PropagationInfo -> [[Int]]

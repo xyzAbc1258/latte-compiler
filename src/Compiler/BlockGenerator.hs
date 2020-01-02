@@ -33,11 +33,14 @@ controls While {} = True
 controls _ = False
 
 lastLabel = Ident "last"
+first = Ident "entry"
+
+entryBlock next = NamedBStmt None first (Block None [Jump None next])
 
 splitStmtsToBlocksA::[Stmt TCC.Type] -> LabelGen [Stmt TCC.Type]
 splitStmtsToBlocksA s = do
-  let first = Ident "entry"
-  stmts <- splitStmtsToBlocks first s lastLabel
+  next <- genLabel
+  stmts <- (entryBlock next :) <$> splitStmtsToBlocks next s lastLabel
   if length stmts  < 2 then return stmts
   else return $ entryFirst $ compactBlocks stmts
 
@@ -48,7 +51,7 @@ entryFirst s =
   entry : rest
 
 compactBlocks::[Stmt TCC.Type] -> [Stmt TCC.Type]
-compactBlocks s=
+compactBlocks s =
   let successors = flatMap successor s in
   let succMap = M.fromList $ groupByFirst successors in
   let predMap = M.fromList $ groupByFirst (map swap successors) in
@@ -81,6 +84,7 @@ successor (NamedBStmt _ n (Block _ s)) =
     Ret {} -> []
     CondJump _ _ r1 r2 -> [(n,r1),(n,r2)]
     Jump _ r -> [(n,r)]
+successor s = error $ "successor " ++ show s
 
 splitStmtsToBlocks::Ident -> [Stmt TCC.Type] -> Ident -> LabelGen [Stmt TCC.Type]
 splitStmtsToBlocks current s next = do
@@ -88,7 +92,7 @@ splitStmtsToBlocks current s next = do
   mapBlocks current splitted next
 
 mapBlocks::Ident -> [[Stmt TCC.Type]] -> Ident -> LabelGen[Stmt TCC.Type]
-mapBlocks c [] _ = return [VRet getDefault]
+mapBlocks c [] _ = return [NamedBStmt None c (Block None [VRet getDefault])]
 mapBlocks c [h] n = processBlock c h n
 mapBlocks c (h:t) n = do
   nextLabel <- genLabel
