@@ -84,3 +84,8 @@ maybeM def = maybe (return def)
 maybeLast::[a] -> Maybe a
 maybeLast [] = Nothing
 maybeLast a = Just $ last a
+
+--[[1,2],[3,4]] -> [[1,3],[2,4]]
+invertList::[[a]] -> [[a]]
+invertList l | any null l = []
+invertList l = (head <$> l) : invertList (tail <$> l)

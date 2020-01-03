@@ -343,3 +343,7 @@ usedVariablesE (Cast _ v _) = [v]
 usedVariablesE (Phi _ p) = let (v,l) = unzip p in v ++ l
 usedVariablesE (ExtractV s _) = [s]
 usedVariablesE (InsertV s v _) = [s, v]
+
+isReturn::LlvmStatement -> Bool
+isReturn Return{} = True
+isReturn _ = False

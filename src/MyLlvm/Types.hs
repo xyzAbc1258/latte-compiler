@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 module MyLlvm.Types where
 
 import Data.Char
@@ -103,6 +105,9 @@ data LlvmVar
   -- | A constant variable
   | LMLitVar LlvmLit
   deriving (Eq)
+
+instance Show LlvmVar where
+  show v = showSDocUnsafe (ppr v)
 
 instance Outputable LlvmVar where
   ppr (LMLitVar x)  = ppr x

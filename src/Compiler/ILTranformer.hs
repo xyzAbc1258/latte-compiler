@@ -15,7 +15,8 @@ import Compiler.ILTransformerCommon
 import Compiler.ILBlockTransformer
 import Data.Char (showLitChar)
 import Common.Utils
-
+import Compiler.LlvmSimplifier
+import Debug.Trace (trace)
 
 toString:: Program TCU.Type -> String
 toString = showSDocUnsafe .  ppLlvmModule . (`evalState` (M.empty,0)) . transformProgram
@@ -105,18 +106,19 @@ funcDeclToStatic (FuncDecl _ r (Ident name) args) = do let funcDecl
                                                                  Nothing
                                                                  Nothing
                                                                  Constant
-                                                       addVar name func
+                                                       --addVar name func
                                                        return $ LMStaticPointer func
 
 
 translateFunction::TopDef TCU.Type -> Translator LlvmFunction
 translateFunction (FnDef _ _ (Ident fname) args (Block _ body)) = do
   varDef <- getVar fname
+  nState <- gets fst
   let (LMGlobalVar _ (LMFunction decl) _ _ _ _ ) = varDef
   let funcArgs = [mkfs n | Arg _ _ (Ident n) <- args]
   mapM_ (uncurry addVar) [(n, LMNLocalVar (mkfs n) $ valType t) | Arg _ t (Ident n) <- args]
   blocks <- transformFuncBody body
-  return $ LlvmFunction {
+  let function =  tailCallOptimization $ LlvmFunction {
     funcDecl = decl,
     funcArgs = funcArgs,
     funcAttrs = [],
@@ -124,5 +126,8 @@ translateFunction (FnDef _ _ (Ident fname) args (Block _ body)) = do
     funcPrefix =  Nothing,
     funcBody = blocks
   }
-
+  current <- gets fst
+  let globals = M.fromList [(k,v) | (k,v@LMGlobalVar{}) <- M.toList current]
+  modify (_1 %~ const (M.union nState globals))
+  return function
 

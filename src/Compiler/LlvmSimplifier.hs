@@ -11,6 +11,8 @@ import qualified Data.Set as S
 import Data.Maybe
 import Control.Lens
 import Debug.Trace
+import Unique (getUnique)
+import FastString (appendFS)
 
 simplifyLlvm::LlvmBlocks -> LlvmBlocks
 simplifyLlvm = untilStabilize (
@@ -179,3 +181,42 @@ getSimplePathsToEntry i p =
                    let paths = flatMap (((i :) <$>) . (\c -> helpF c p (i : visited))) preds in
                    paths
 
+
+tailCallOptimization::E LlvmFunction
+tailCallOptimization f =
+  if not $ isTailCallOptimizable f then f
+  else let body = funcBody f in
+       let fName = decName (funcDecl f) in
+       let funcParams = zipWith LMNLocalVar (funcArgs f) (map fst $ decParams $ funcDecl f) in
+       let retBlocks = filter (isReturn . last . blockStmts) body in
+       let retValues = nub $ flatMap (maybeToList . (\(Return v) -> v) . last . blockStmts) retBlocks in
+       let retVTailCalls = [(b, a, args) | (b, a@(Assignment v (Call _ (LMGlobalVar _ (LMFunction d) _ _ _ _) args _)))
+                                   <- flatMap (\b -> (b,) <$> blockStmts b) retBlocks, v `elem` retValues, decName d == fName] in
+       let nEntry = getUnique $ mkfs "nEntry" in
+       let fEntry = getUnique $ mkfs "tailEntry" in
+       let phiNames = map (\(LMNLocalVar n t) -> LMNLocalVar (appendFS n (mkfs "_phi")) t) funcParams in
+       let allToPhi = (nEntry, funcParams) : map (\(b,_,args) -> (blockLabel b, args)) retVTailCalls in
+       let phiSources = map (\ (a,p) -> (,makeLabelVar a) <$> p) allToPhi in
+       let phis = zipWith (\t l -> Assignment t $ Phi (getVarType t) l) phiNames (invertList phiSources) in
+       let stmtsToRemove = map (\(_,s,_) -> s) retVTailCalls in
+       let rBlocks = nub $ map (\(b,_,_) -> blockLabel b) retVTailCalls in
+       let woCalls = map (mapStmtsInBlock (filter (`notElem` stmtsToRemove))) body in       
+       let nBodyWithReplVars = foldl (flip (<$>)) woCalls $ zipWith replaceVars funcParams phiNames in
+       let withJumps = map (replaceToJump rBlocks fEntry) nBodyWithReplVars in
+       let firstBlock = LlvmBlock {blockLabel = nEntry, blockStmts = [Branch (LMLocalVar fEntry LMLabel)]} in
+       let sndBlock = LlvmBlock {blockLabel = fEntry, blockStmts = phis ++ [Branch (makeLabelVar (blockLabel $ head withJumps))]} in
+       f {funcBody = simplifyLlvm $ firstBlock : sndBlock : withJumps}
+       where replaceToJump ids target b | blockLabel b `notElem` ids = b
+             replaceToJump _ target b = b {blockStmts = init (blockStmts b) ++ [Branch (makeLabelVar target)]}
+             makeLabelVar t = LMLocalVar t LMLabel
+
+isTailCallOptimizable::LlvmFunction -> Bool
+isTailCallOptimizable f =
+  let body = funcBody f in
+  let retBlocks = filter (isReturn . last . blockStmts) body in
+  let retValues = nub $ flatMap (maybeToList . (\(Return v) -> v) . last . blockStmts) retBlocks in
+  let retVTailCalls = [() | Assignment v (Call _ (LMGlobalVar _ (LMFunction d) _ _ _ _) _ _)
+                            <- flatMap blockStmts retBlocks, v `elem` retValues, decName d == decName (funcDecl f)] in
+  let allCallsToItself = [() | Assignment v (Call _ (LMGlobalVar _ (LMFunction d) _ _ _ _) _ _)
+                            <- flatMap blockStmts body, v `elem` retValues, decName d == decName (funcDecl f)] in
+  (length retVTailCalls == length allCallsToItself && not (null retVTailCalls))
