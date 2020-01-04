@@ -18,6 +18,17 @@ transformStmt (Decl _ t inits) = do
   let assigns = [Ass None (EVar (mapType t) n) e | Init _ n e <- inits]
   mapM_ transformStmt assigns
 
+transformStmt (Ass _ (EVar t (Ident name)) rhs@EVar{}) = do
+  v <- transformRExpr rhs
+  case (valTType t, getVarType v) of
+    (t1, t2) | t1 == t2 -> do --TODO better
+                             dummyVar <- sAssign t1 (Dummy v) 
+                             sAddLocalVar name dummyVar Write
+    (t1, t2) -> do
+                  cVar <- sAssign t1 (Cast LM_Bitcast v t1)
+                  sAddLocalVar name cVar Write
+
+
 transformStmt (Ass _ (EVar t (Ident name)) rhs) = do
   v <- transformRExpr rhs
   case (valTType t, getVarType v) of

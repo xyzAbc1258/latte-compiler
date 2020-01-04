@@ -13,7 +13,7 @@ Zaimplementowane rozszerzenia:
     - usuwanie nieużywanych zmiennych
     - wywoływanie metod w sposób wirtualny tylko wtedy gdy były nadpisania
     - usuwanie nieosiągalnego kodu
-    - optymalizacja wywołań ogonowych
+    - optymalizacja rekurencji ogonowej
     
 Wykorzystane moduły:
     - moduł MyLlvm to kopia modułu https://gitlab.haskell.org/ghc/ghc/tree/master/compiler/llvmGen

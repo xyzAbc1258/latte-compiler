@@ -25,6 +25,9 @@ import Data.Function
 import Data.Tuple
 
 
+instance Show LlvmBlock where
+  show _ = ""
+
 data PropagationInfo = PropagationInfo {
       _entry :: Int,
       _blocks:: M.Map Int LlvmBlock,
@@ -33,7 +36,7 @@ data PropagationInfo = PropagationInfo {
       _imports:: M.Map Int (Maybe LlvmVar),
       _exports:: M.Map Int (Maybe LlvmVar),
       _requires:: M.Map Int Bool
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 $(makeLenses ''PropagationInfo)
 
@@ -142,7 +145,7 @@ getImportValue v i p = case _imports p M.! i of
                               let preds = _preds p M.! i
                               varCand <- newVar (getVarType $ pVarLower v)
                               (fp, sValues) <- foldM (\(cp,l) i -> (\(a,b) -> (a,b:l)) <$> getExportValue v i cp) (adjustExport i (Just varCand) p,[]) preds
-                              let values = zip (reverse preds) sValues
+                              let values = zip (reverse preds) sValues -- [(id bloku, zmienna)]
                               (np, ve) <-  if length (nub $ snd <$> values) == 1 then
                                                do let newVari = head $ nub $ snd <$> values
                                                   let block = _blocks fp M.! i
@@ -182,7 +185,8 @@ getImportValue v i p = case _imports p M.! i of
                               if varCand /= ve then
                                 return
                                   (np & blocks %~ M.map (replaceVars varCand ve) & 
-                                    exports %~ M.map (\e -> if e == Just varCand then Just ve else e), ve)
+                                    exports %~ M.map (\e -> if e == Just varCand then Just ve else e) &
+                                    imports %~ M.map (\e -> if e == Just varCand then Just ve else e), ve)
                               else return (np, ve)
 
 getExportValue::LlvmVar -> Int -> PropagationInfo -> Translator (PropagationInfo, LlvmVar)

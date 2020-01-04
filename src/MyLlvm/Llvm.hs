@@ -1,3 +1,5 @@
+-- Skopiowane ze źródeł GHC, rozszerzone o brakujące mi rzeczy
+
 module MyLlvm.Llvm (
 
         -- * Modules, Functions and Blocks

@@ -250,9 +250,10 @@ replaceVarsInExpr f t (Call typ on args w) = Call typ (rviv f t on) (map (rviv f
 replaceVarsInExpr f t (Phi typ p) = Phi typ $ map (\(a,b) -> (rviv f t a, rviv f t b))  p
 replaceVarsInExpr f t (ExtractV s i) = ExtractV (rviv f t s) i
 replaceVarsInExpr f t (InsertV s v i) = InsertV (rviv f t s) (rviv f t v) i
-
+replaceVarsInExpr f t (Dummy v) = Dummy $ rviv f t v
 
 isSimplifiable::LlvmExpression -> Bool
+isSimplifiable Dummy{} = True
 isSimplifiable (LlvmOp LM_MO_SDiv _ v2) | isConst v2 && getValFromConst v2 == 0 = False
 isSimplifiable (LlvmOp LM_MO_Add (LMLitVar (LMIntLit 0 _)) v) = True
 isSimplifiable (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = True
@@ -297,6 +298,7 @@ simplifyLlvmCmp LM_CMP_Slt = liftCmpOp (<)
 simplifyLlvmCmp LM_CMP_Sle = liftCmpOp (<=)
 
 simplifyExpr::LlvmExpression -> LlvmVar
+simplifyExpr (Dummy v) = v
 simplifyExpr (LlvmOp LM_MO_Add (LMLitVar (LMIntLit 0 _)) v) = v
 simplifyExpr (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = v
 simplifyExpr (LlvmOp LM_MO_Sub v (LMLitVar (LMIntLit 0 _))) = v

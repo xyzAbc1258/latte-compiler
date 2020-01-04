@@ -353,5 +353,7 @@ data LlvmExpression
   | MExpr [MetaAnnot] LlvmExpression
 
   | Select LlvmVar LlvmVar LlvmVar
+  
+  | Dummy LlvmVar -- dummy, should be removed in "simplification" phase
 
   deriving (Eq)

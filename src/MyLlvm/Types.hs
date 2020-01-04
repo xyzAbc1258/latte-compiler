@@ -1,5 +1,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
+
+-- Skopiowane ze źródeł GHC, rozszerzone o brakujące mi rzeczy
+
 module MyLlvm.Types where
 
 import Data.Char

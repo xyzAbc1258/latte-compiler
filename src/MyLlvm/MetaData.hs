@@ -1,5 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
+-- Skopiowane ze źródeł GHC, rozszerzone o brakujące mi rzeczy
+
 module MyLlvm.MetaData where
 
 import MyLlvm.Types

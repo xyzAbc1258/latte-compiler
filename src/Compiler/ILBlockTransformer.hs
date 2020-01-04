@@ -10,6 +10,7 @@ import Control.Monad.Writer
 import qualified Data.Map as M
 import Compiler.PhiPropagator
 import Compiler.LlvmSimplifier
+import Common.Utils
 
 transformFuncBody::[Stmt TCU.Type] -> Translator LlvmBlocks
 transformFuncBody s = do

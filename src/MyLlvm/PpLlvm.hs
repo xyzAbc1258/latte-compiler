@@ -1,3 +1,5 @@
+-- Skopiowane ze źródeł GHC, rozszerzone o brakujące mi rzeczy
+
 module MyLlvm.PpLlvm (
 
     -- * Top level LLVM objects.

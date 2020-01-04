@@ -14,6 +14,7 @@ import Data.List as List
 import Data.List.Split as Ls
 import Data.IORef
 import System.IO.Unsafe
+import Debug.Trace (trace)
 
 
 isDebugRef::IORef Bool
@@ -89,3 +90,7 @@ maybeLast a = Just $ last a
 invertList::[[a]] -> [[a]]
 invertList l | any null l = []
 invertList l = (head <$> l) : invertList (tail <$> l)
+
+
+traceShow::(Show a) => String -> a -> a
+traceShow p o = trace (p ++ show o) o
