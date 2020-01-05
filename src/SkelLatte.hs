@@ -75,7 +75,6 @@ transBranchV x = case x of
   BranchVar _ expr ident -> failure x
 transExpr :: Show a => Expr a -> Result
 transExpr x = case x of
-  EVersVar _ ident integer -> failure x
   EPhi _ branchvs -> failure x
   EVar _ ident -> failure x
   ELitInt _ integer -> failure x

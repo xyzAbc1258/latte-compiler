@@ -100,6 +100,9 @@ mapBlocks c (h:t) n = do
   (b ++) <$> mapBlocks nextLabel t n
 
 processBlock::Ident -> [Stmt TCC.Type] -> Ident -> LabelGen [Stmt TCC.Type]
+processBlock current [Cond a cond (BStmt _ (Block bat [Ass ae v@(EVar t i) ift]))] next | isPure ift =
+  return [NamedBStmt a current (Block a [Ass ae v (ESwitch t cond ift v), Jump a next])]
+
 processBlock current [Cond a cond (BStmt _ (Block ba ifT))] next = do
   iftLabel <- genLabel
   condBlock <- genCondBlocks current cond iftLabel next
@@ -107,6 +110,11 @@ processBlock current [Cond a cond (BStmt _ (Block ba ifT))] next = do
   return $ condBlock ++ blocks
 
 processBlock current [Cond a cond b] next = processBlock current [Cond a cond (BStmt a (Block a [b]))] next
+
+processBlock current [CondElse a cond (BStmt _ (Block bat [Ass ae (EVar t i) ift])) 
+                                      (BStmt _ (Block baf [Ass _ (EVar _ f) iff]))] next 
+                                      | i == f && isPure ift && isPure iff =
+  return [NamedBStmt a current (Block a [Ass ae (EVar t i) (ESwitch t cond ift iff), Jump a next])]
 
 processBlock current [CondElse a cond (BStmt _ (Block bat ifT)) (BStmt _ (Block baf ifF))] next = do
   iftLabel <- genLabel

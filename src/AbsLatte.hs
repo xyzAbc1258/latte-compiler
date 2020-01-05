@@ -133,7 +133,7 @@ instance Functor BranchV where
     fmap f x = case x of
         BranchVar a expr ident -> BranchVar (f a) (fmap f expr) ident
 data Expr a
-    = EVersVar a Ident Integer
+    = ESwitch a (Expr a) (Expr a) (Expr a)
     | EPhi a [BranchV a]
     | EVar a Ident
     | ELitInt a Integer
@@ -159,7 +159,7 @@ data Expr a
 
 instance Functor Expr where
     fmap f x = case x of
-        EVersVar a ident integer -> EVersVar (f a) ident integer
+        ESwitch a cond ift iff -> ESwitch (f a) (fmap f cond) (fmap f ift) (fmap f iff)
         EPhi a branchvs -> EPhi (f a) (map (fmap f) branchvs)
         EVar a ident -> EVar (f a) ident
         ELitInt a integer -> ELitInt (f a) integer

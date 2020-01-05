@@ -58,6 +58,20 @@ transformRExpr (EVar t (Ident name)) = do
           t | t == vType -> return v
           t -> sAssign vType (Cast LM_Bitcast v vType)
 
+
+transformRExpr (ESwitch t cond ift iff) = do
+  vT <- transformRExpr ift
+  vF <- transformRExpr iff
+  vC <- transformRExpr cond
+  vTC <- case (valTType t, getVarType vT) of
+          (t1, t2) | t1 == t2 -> return vT
+          (t1, t2) -> sAssign t1 (Cast LM_Bitcast vT t1)
+  vFC <- case (valTType t, getVarType vF) of
+            (t1, t2) | t1 == t2 -> return vF
+            (t1, t2) -> sAssign t1 (Cast LM_Bitcast vF t1)
+  sAssign (valTType t) (Select vC vTC vFC)
+
+
 transformRExpr e@(EFldNoAcc t obj num) =
   case extract obj of
     TCU.Array{} -> do -- dostęp do długości tablicy, może niefortunne że jest to też EFldNoAcc...

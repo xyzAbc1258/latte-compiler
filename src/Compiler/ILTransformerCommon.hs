@@ -111,7 +111,10 @@ hasLocalVar n = isJust . (M.!? n) . fst <$> getLocal
 
 
 getFMap::(Show k, Ord k) => k -> M.Map k v -> v
-getFMap k m = fromMaybe (error $ "not found: " ++ show k) (m M.!? k)
+getFMap key m = fromMaybe (error $ "not found: " ++ show key) (m M.!? key)
+
+getFMapI::(Show k, Ord k) => M.Map k v -> k -> v
+getFMapI = flip getFMap
 
 getLocalVar::String -> StmtWriter LlvmVar
 getLocalVar n = fst . (getFMap n) . fst <$> getLocal
@@ -251,6 +254,8 @@ replaceVarsInExpr f t (Phi typ p) = Phi typ $ map (\(a,b) -> (rviv f t a, rviv f
 replaceVarsInExpr f t (ExtractV s i) = ExtractV (rviv f t s) i
 replaceVarsInExpr f t (InsertV s v i) = InsertV (rviv f t s) (rviv f t v) i
 replaceVarsInExpr f t (Dummy v) = Dummy $ rviv f t v
+replaceVarsInExpr f t (Select c ift iff) = Select (rviv f t c) (rviv f t ift) (rviv f t iff)
+
 
 isSimplifiable::LlvmExpression -> Bool
 isSimplifiable Dummy{} = True
@@ -260,9 +265,12 @@ isSimplifiable (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = True
 isSimplifiable (LlvmOp LM_MO_Sub v (LMLitVar (LMIntLit 0 _))) = True
 isSimplifiable (LlvmOp LM_MO_Mul (LMLitVar (LMIntLit 1 _)) v) = True
 isSimplifiable (LlvmOp LM_MO_Mul v (LMLitVar (LMIntLit 1 _))) = True
+isSimplifiable (LlvmOp LM_MO_SDiv v (LMLitVar (LMIntLit 1 _))) = True
 isSimplifiable (LlvmOp _ v1 v2) | isConst v1 && isConst v2 = True
-isSimplifiable (Compare _ v1 v2) = isConst v1 && isConst v2
+isSimplifiable (Compare _ v1 v2) | isConst v1 && isConst v2 = True
+isSimplifiable (Compare _ v1 v2) | v1 == v2 = True
 isSimplifiable (Cast LM_Sext v1 t) = isConst v1
+isSimplifiable (Select c t f) = isConst c || (t == f)
 isSimplifiable _ = False
 
 isConst::LlvmVar -> Bool
@@ -279,7 +287,8 @@ liftOp::BinOp Integer -> BinOp LlvmVar
 liftOp op v1 v2 = litNum (op (getValFromConst v1) (getValFromConst v2)) $ getVarType v1
 
 liftCmpOp::CmpOp Integer -> BinOp LlvmVar
-liftCmpOp op v1 v2 = litNum (if op (getValFromConst v1) (getValFromConst v2) then 1 else 0) i1
+liftCmpOp op v1 v2 | isConst v1 && isConst v2 = litNum (if op (getValFromConst v1) (getValFromConst v2) then 1 else 0) i1
+liftCmpOp op v1 v2 | v1 == v2 = litNum ( if op 0 0 then 1 else 0 ) i1
 
 simplifyLlvmOp::LlvmMachOp -> BinOp LlvmVar
 simplifyLlvmOp LM_MO_Add = liftOp (+)
@@ -289,7 +298,7 @@ simplifyLlvmOp LM_MO_SDiv = liftOp div
 simplifyLlvmOp LM_MO_And = liftOp (\a b -> if (a + b) == 2 then 1 else 0)
 simplifyLlvmOp LM_MO_Or = liftOp (\a b -> if (a + b) > 0 then 1 else 0)
 
-simplifyLlvmCmp::LlvmCmpOp -> LlvmVar -> LlvmVar -> LlvmVar
+simplifyLlvmCmp::LlvmCmpOp -> BinOp LlvmVar
 simplifyLlvmCmp LM_CMP_Eq  = liftCmpOp (==)
 simplifyLlvmCmp LM_CMP_Ne  = liftCmpOp (/=)
 simplifyLlvmCmp LM_CMP_Sgt = liftCmpOp (>)
@@ -304,9 +313,12 @@ simplifyExpr (LlvmOp LM_MO_Add v (LMLitVar (LMIntLit 0 _))) = v
 simplifyExpr (LlvmOp LM_MO_Sub v (LMLitVar (LMIntLit 0 _))) = v
 simplifyExpr (LlvmOp LM_MO_Mul (LMLitVar (LMIntLit 1 _)) v) = v
 simplifyExpr (LlvmOp LM_MO_Mul v (LMLitVar (LMIntLit 1 _))) = v
+simplifyExpr (LlvmOp LM_MO_SDiv v (LMLitVar (LMIntLit 1 _))) = v
 simplifyExpr (LlvmOp m v1 v2) = simplifyLlvmOp m v1 v2
 simplifyExpr (Compare m v1 v2) = simplifyLlvmCmp m v1 v2
 simplifyExpr (Cast LM_Sext (LMLitVar (LMIntLit v _)) t) = LMLitVar $ LMIntLit v t
+simplifyExpr (Select c t f) | isConst c = if getValFromConst c == 1 then t else f
+simplifyExpr (Select _ t f) | t == f = t
 
 unusedVariables::LlvmBlocks -> [LlvmVar]
 unusedVariables b =
@@ -345,6 +357,7 @@ usedVariablesE (Cast _ v _) = [v]
 usedVariablesE (Phi _ p) = let (v,l) = unzip p in v ++ l
 usedVariablesE (ExtractV s _) = [s]
 usedVariablesE (InsertV s v _) = [s, v]
+usedVariablesE (Select c t f) = [c, t, f]
 
 isReturn::LlvmStatement -> Bool
 isReturn Return{} = True

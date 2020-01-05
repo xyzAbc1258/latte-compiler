@@ -140,8 +140,8 @@ ListArg :: {
 ListClDecl :: {
   (Maybe (Int, Int), [ClDecl (Maybe (Int, Int))]) 
 }
-: ClDecl {
-  (fst $1, (:[]) (snd $1)) 
+: {
+    (Nothing, [])
 }
 | ClDecl ListClDecl {
   (fst $1, (:) (snd $1)(snd $2)) 

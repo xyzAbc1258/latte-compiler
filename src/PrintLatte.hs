@@ -169,7 +169,7 @@ instance Print (BranchV a) where
   prtList _ (x:xs) = (concatD [prt 0 x, doc (showString ","), prt 0 xs])
 instance Print (Expr a) where
   prt i e = case e of
-    EVersVar _ id n -> prPrec i 7 (concatD [prt 0 id, doc (showString "_"), prt 0 n])
+    ESwitch _ cond ift iff -> prPrec i 7 (concatD [prt 0 cond, doc (showString "?"), prt 1 ift, doc (showString ":"), prt 1 iff])
     EPhi _ branchvs -> prPrec i 7 (concatD [doc (showString "phi"), doc (showString "("), prt 0 branchvs, doc (showString ")")])
     EVar _ id -> prPrec i 7 (concatD [prt 0 id])
     ELitInt _ n -> prPrec i 7 (concatD [prt 0 n])

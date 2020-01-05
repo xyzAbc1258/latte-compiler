@@ -14,6 +14,7 @@ Zaimplementowane rozszerzenia:
     - wywoływanie metod w sposób wirtualny tylko wtedy gdy były nadpisania
     - usuwanie nieosiągalnego kodu
     - optymalizacja rekurencji ogonowej
+    - zastąpienie bloku "if(c) v = v1 else v = v2" instrukcją select gdy v1 i v2 są bez efektów ubocznych 
     
 Wykorzystane moduły:
     - moduł MyLlvm to kopia modułu https://gitlab.haskell.org/ghc/ghc/tree/master/compiler/llvmGen

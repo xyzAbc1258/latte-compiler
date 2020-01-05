@@ -14,10 +14,11 @@ import Debug.Trace
 import Unique (getUnique)
 import FastString (appendFS)
 
-simplifyLlvm::LlvmBlocks -> LlvmBlocks
+simplifyLlvm::E LlvmBlocks
 simplifyLlvm = untilStabilize (
-    --removeEmptyBlocks .
     removeUnusedVariables .
+    removeUnreachableBlocks .
+    simplifyBranching .
     compactBlocks .
     globalCommonSimplification .
     simplifyConstants .
@@ -25,7 +26,7 @@ simplifyLlvm = untilStabilize (
   )
 
 -- przy przekształcaniu do ssa potrafią powstać %v = phi [%v, %1], [%c, %3] więc podmieniamy %v na %c 
-removeSingleValuePhis::LlvmBlocks -> LlvmBlocks
+removeSingleValuePhis::E LlvmBlocks
 removeSingleValuePhis bs =
   let allStmts = flatMap blockStmts bs in
   let stmtsToRemove = [a | a@(Assignment r (Phi _ v)) <- allStmts, length (nub $ filter (/= r) $ fst <$> v) == 1] in
@@ -37,7 +38,7 @@ removeSingleValuePhis bs =
     let finalBs = map (replaceVars r toReplace) newBs in
     removeSingleValuePhis finalBs
 
-simplifyConstants::LlvmBlocks -> LlvmBlocks
+simplifyConstants::E LlvmBlocks
 simplifyConstants b =
   let allStmts = flatMap blockStmts b in
   let toSimplify = [(v, simplifyExpr e, a) | a@(Assignment v e) <- allStmts, isSimplifiable e] in
@@ -49,11 +50,32 @@ simplifyConstants b =
                               simplifyConstants finalB
 
 
+removeUnreachableBlocks::E LlvmBlocks
+removeUnreachableBlocks b =
+  let p = buildPropagationInfo b in
+  let unreachable = p ^. blocks & M.keys & filter (\k -> k /= 1 && isNothing (_preds p M.!? k)) in --bez poprzedników niebędące entry 
+  let reachable = p ^. blocks & M.filterWithKey (\k _ -> k `notElem` unreachable) & M.elems in 
+  let withCorrectedPhis = map (mapStmtInBlock (fixPhis (map (blockLabel . (_blocks p M.!)) unreachable))) reachable in
+  if null unreachable then withCorrectedPhis else removeUnreachableBlocks withCorrectedPhis
+  where fixPhis toRem (Assignment v (Phi t l)) = Assignment v (Phi t [p | p@(_, LMLocalVar id LMLabel) <- l, id `notElem` toRem])
+        fixPhis _ s = s
+
+
+simplifyBranching::E LlvmBlocks
+simplifyBranching = map simplHelp 
+  where simplHelp b | last (blockStmts b) & isReturn & not = 
+          case last (blockStmts b) of
+               BranchIf c ift iff | isConst c && getValFromConst c == 0 -> b {blockStmts = init (blockStmts b) ++ [Branch iff]}
+               BranchIf c ift iff | isConst c && getValFromConst c == 1 -> b {blockStmts = init (blockStmts b) ++ [Branch ift]}
+               BranchIf c ift iff | ift == iff -> b {blockStmts = init (blockStmts b) ++ [Branch iff]}
+               _ -> b 
+        simplHelp b = b
+        
 -- usuwanie wspólnych podwyrażeń w całym ciele funkcji
-globalCommonSimplification::LlvmBlocks -> LlvmBlocks
+globalCommonSimplification::E LlvmBlocks
 globalCommonSimplification b =
   let propagationInfo = buildPropagationInfo b in
-  let dominatingElems = map (\i-> (i, getDominatingBlocks i propagationInfo)) [2..(length b)] in
+  let dominatingElems = map (\i-> (i, getDominatingBlocks i propagationInfo)) (filter (/= 1) $ M.keys $ _blocks propagationInfo) in
   let simpl = globalCommonS propagationInfo dominatingElems (S.singleton 1) in
   M.elems $ _blocks simpl
   where globalCommonS prop toDo done =
@@ -64,7 +86,7 @@ globalCommonSimplification b =
                          let correctAssigns = filter correctStmts $ flatMap blockStmts pblocks in
                          let inserts = [(v, ExtractV a (fromInteger $ head i)) | Assignment a (InsertV _ v i) <- correctAssigns] in
                          let map = [(v,e) | Assignment v e <- correctAssigns] ++ inserts in
-                         let procBlock = _blocks prop M.! i in
+                         let procBlock = _blocks prop `getFMapI` i in
                          let reducibleStmts = [(a, nv, fst $ head $ filter (( == ne) . snd) map)
                                 | a@(Assignment nv ne) <- blockStmts procBlock, any (( == ne) . snd) map] in
                          case reducibleStmts of
@@ -88,16 +110,16 @@ compactBlocks::E LlvmBlocks
 compactBlocks b =
   let pInfo = buildPropagationInfo b in
   let withSinglePred = _preds pInfo & M.filter ((== 1) . length) & M.map head in
-  let alsoWithSingleSucc = M.toList $ M.filter (\p -> _succs pInfo M.! p & length & (==) 1) withSinglePred in
+  let alsoWithSingleSucc = M.toList $ M.filter (\p -> _succs pInfo `getFMapI` p & length & (==) 1) withSinglePred in
   case alsoWithSingleSucc of
     [] -> b
-    (s,p) : _ -> let sBlock = _blocks pInfo M.! s in
-                 let pBlock = _blocks pInfo M.! p in
+    (s,p) : _ -> let sBlock = _blocks pInfo `getFMapI` s in
+                 let pBlock = _blocks pInfo `getFMapI` p in
                  let pBody = blockStmts pBlock in
                  let sBody = blockStmts sBlock in
                  let joined = pBlock {blockStmts = init pBody ++ sBody } in
                  let nProp = pInfo & blocks %~ M.filterWithKey (\ k _ -> k /= s) . M.insert p joined in
-                 let fBlocks = M.elems $ M.map (replaceVars (varLabel sBlock) (varLabel pBlock)) $ _blocks nProp in
+                 let fBlocks = M.elems $ M.map (replaceVars (varLabel sBlock) (varLabel pBlock)) $ _blocks nProp in -- naprawia phi po usunięciu bloku
                  compactBlocks fBlocks
   where varLabel block = LMLocalVar (blockLabel block) LMLabel
 
@@ -113,33 +135,6 @@ removeUnusedVariables b =
   where removeAssignment v (Assignment av c@Call{}) | v == av = Expr c
         removeAssignment v (Assignment av _) | v == av = Nop
         removeAssignment _ s = s
-
--- TODO fix, potrafią rozwalić ify, zastąpić przez select jeśli mi się chce
-removeEmptyBlocks::E LlvmBlocks
-removeEmptyBlocks b =
-  let pInfo = buildPropagationInfo b in
-  let usedVars = flatMap usedVariablesS [a | a@(Assignment _ Phi{}) <- flatMap blockStmts b] in
-  let emptyBlocks = [(e,i, t, l, used, preds) | (i, e) <- M.toList $ _blocks pInfo,
-                                           [Branch t] <- [blockStmts e],
-                                           l <- [LMLocalVar (blockLabel e) LMLabel],
-                                           used <- [l `elem` usedVars],
-                                           preds <- [fromMaybe [] $ _preds pInfo M.!? i ] ] in
-  let filtered = filter (\(_,_,_,_,u,p) -> not u) emptyBlocks in
-  case filtered of
-    [] -> b
-    (e,i,t,l,False, _):_ -> let nBlocks = _blocks pInfo & M.filterWithKey(\k _ -> k /= i) & M.elems in
-                            let repl = map (replaceVars l t) nBlocks in
-                            removeEmptyBlocks repl
-    (e,i,t,l,True, [p]):_ -> let nBlocks = _blocks pInfo & M.filterWithKey(\k _ -> k /= i) & M.elems in
-                             let pBlockLabel = LMLocalVar (_blocks pInfo M.! p & blockLabel) LMLabel in
-                             let repl = map (mapStmtInBlock (replaceInPhi l pBlockLabel . replaceInReturn l t)) nBlocks in
-                             removeEmptyBlocks repl
-  where replaceInReturn f t (Branch v) = Branch (replaceVarInVar f t v)
-        replaceInReturn f t (BranchIf c ift iff) = BranchIf c (replaceVarInVar f t ift) (replaceVarInVar f t iff)
-        replaceInReturn _ _ s = s
-        replaceInPhi f t a@(Assignment _ Phi{}) = replaceVarsInStmt f t a
-        replaceInPhi _ _ a = a
-
 
 buildPropagationInfo::LlvmBlocks -> PropagationInfo
 buildPropagationInfo bs =
@@ -177,7 +172,7 @@ getSimplePathsToEntry i p =
                | i `elem` visited = []
                | _entry p == i = [[i]]
                | otherwise =
-                   let preds = _preds p M.! i in
+                   let preds = fromMaybe [] $ _preds p M.!? i in
                    let paths = flatMap (((i :) <$>) . (\c -> helpF c p (i : visited))) preds in
                    paths
 
@@ -200,7 +195,7 @@ tailCallOptimization f =
        let phis = zipWith (\t l -> Assignment t $ Phi (getVarType t) l) phiNames (invertList phiSources) in
        let stmtsToRemove = map (\(_,s,_) -> s) retVTailCalls in
        let rBlocks = nub $ map (\(b,_,_) -> blockLabel b) retVTailCalls in
-       let woCalls = map (mapStmtsInBlock (filter (`notElem` stmtsToRemove))) body in       
+       let woCalls = map (mapStmtsInBlock (filter (`notElem` stmtsToRemove))) body in
        let nBodyWithReplVars = foldl (flip (<$>)) woCalls $ zipWith replaceVars funcParams phiNames in
        let withJumps = map (replaceToJump rBlocks fEntry) nBodyWithReplVars in
        let firstBlock = LlvmBlock {blockLabel = nEntry, blockStmts = [Branch (LMLocalVar fEntry LMLabel)]} in
