@@ -24,7 +24,9 @@ transformRExpr (EString _ nv) = do
   v <- lift $ lift $ createConstString nv
   sAssign i8Ptr (GetElemPtr True (pVarLift v) [number 0, number 0])
 
-transformRExpr (ENull t _) = return $ LMLitVar $ LMNullLit $ valTType t
+transformRExpr (ENull t@TCU.Class{} _) = return $ LMLitVar $ LMNullLit $ valTType t
+transformRExpr (ENull t@TCU.Str _) = return $ LMLitVar $ LMNullLit $ valTType t
+transformRExpr (ENull t@TCU.Array{} _) = return $ LMLitVar $ LMZeroInitializer $ valTType t
 
 transformRExpr (EAnd t v1 v2) = transformBinaryOp t v1 v2 LM_MO_And
 transformRExpr (EOr t v1 v2) = transformBinaryOp t v1 v2 LM_MO_Or
@@ -177,6 +179,15 @@ transformBinaryOp rt v1 v2 op = do
 
 
 transformBinaryCmp::TCU.Type -> Expr TCU.Type -> Expr TCU.Type ->LlvmCmpOp -> StmtWriter LlvmVar
+-- osobne zachowanie ze względu na polimorfizm
+transformBinaryCmp rt v1 v2 op | (op == LM_CMP_Eq || op == LM_CMP_Ne) && isClass (extract v1) = do
+  v1v <- transformRExpr v1
+  v2v <- transformRExpr v2
+  let eqTypes = extract v1 == extract v2
+  v1c <- if not eqTypes then sAssign i8Ptr (Cast LM_Bitcast v1v i8Ptr) else return v1v
+  v2c <- if not eqTypes then sAssign i8Ptr (Cast LM_Bitcast v2v i8Ptr) else return v2v
+  sAssign (valTType rt) (Compare op v1c v2c)
+
 transformBinaryCmp rt v1 v2 op = do
   let bToLit a = return $ if a then litNum 1 i1 else litNum 0 i1
   v1 <- transformRExpr v1

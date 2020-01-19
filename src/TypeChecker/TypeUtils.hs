@@ -52,6 +52,14 @@ isConvertible (Fun r1 a1) (Fun r2 a2) = do
   return $ length a1 == length a2 && and argsConv && retConv
 isConvertible _ _ = return False
 
+
+hasCommonSuperClass::(MonadReader StackEnv m) =>String -> String -> m Bool
+hasCommonSuperClass a b = do
+  al <- inheritanceList a
+  bl <- inheritanceList b
+  let inters = [e | e <- al, e `elem` bl]
+  return $ not $ null inters
+
 isTypeDefined::(MonadReader StackEnv m) => Type -> m Bool
 isTypeDefined x | isPrimitive x = return True
 isTypeDefined (Class name) = asks (any (M.member name . _classInfos))

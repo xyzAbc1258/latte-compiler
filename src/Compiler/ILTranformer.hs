@@ -13,7 +13,7 @@ import Common.ASTUtils
 import qualified TypeChecker.TypeCheckCommon as TCC
 import Compiler.ILTransformerCommon
 import Compiler.ILBlockTransformer
-import Data.Char (showLitChar)
+import GHC.Show (showLitString)
 import Common.Utils
 import Compiler.LlvmSimplifier
 import Debug.Trace (trace)
@@ -24,26 +24,28 @@ toString = showSDocUnsafe .  ppLlvmModule . (`evalState` (M.empty,0)) . transfor
 toDoc:: Program TCU.Type -> SDoc
 toDoc = ppLlvmModule . (`evalState` (M.empty,0)) . transformProgram
 
+
 transformProgram::Program TCU.Type -> Translator LlvmModule
 transformProgram (Program a topdefs) = do
-  declareStandardFunctions
+  stdFuncs <- declareStandardFunctions
   let aliases = [transformAlias s | s@Struct{} <- topdefs]
   varrays <- mapM transformVirtArray [v | v@VirtArray{} <- topdefs]
   mapM_ declareFunc [f | f@FnDef{} <- topdefs]
   funcs <- mapM translateFunction [f | f@FnDef{} <- topdefs]
   ss <- gets (M.toList . fst)
   -- dziwny brak obsługi nowych linii :/
-  let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs $ replace "\\n" "\\0A" $ foldl (.) id (map showLitChar text) []) (LMArray (length text +1) i8)) | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private]
+  let sConsts = [LMGlobal v (Just $ LMStaticStr (mkfs conv) (LMArray (sLength conv +1) i8))
+                    | (_:_:_:_:_:text,v@LMGlobalVar{}) <- ss, getLink v == Private, let conv = convertString text]
   return $ LlvmModule {
     modComments = [],
     modAliases = aliases,
     modMeta = [],
     modGlobals = varrays ++ sConsts,
-    modFwdDecls = [],
+    modFwdDecls = stdFuncs,
     modFuncs = funcs
   } 
 
-declareStandardFunctions::Translator ()
+declareStandardFunctions::Translator LlvmFunctionDecls
 declareStandardFunctions = do
   let stdLib = fmap snd $ M.toList $ _functions $ head TCC.baseStack
   let mtb = mapTypeBack
@@ -52,26 +54,29 @@ declareStandardFunctions = do
   let createFuncDecl rType name = FnDef () rType (Ident name)
   let createFuncDeclFromTCUTypes r n a = createFuncDecl (mtb r) n (map (createDummyArg . mtb) a) emptyBlock
   let declarations = map (\ (FunctionInfo n r a) -> createFuncDeclFromTCUTypes r n a) stdLib
-  mapM_ (declareFunc . (None <$)) declarations
+  mapM (declareFunc . (None <$)) declarations
 
 transformAlias::TopDef TCU.Type -> LlvmAlias
 transformAlias (Struct _ (Ident name) types) = (mkFastString name, LMStruct $ (LMPointer i8Ptr :) $ map valType types)
 
-declareFunc::TopDef TCU.Type -> Translator ()
+declareFunc::TopDef TCU.Type -> Translator LlvmFunctionDecl
 declareFunc (FnDef _ rt (Ident fName) args body) = do
+  let decl = LlvmFunctionDecl{decName = mkFastString fName,
+                                                            funcLinkage = ExternallyVisible, funcCc = CC_Ccc,
+                                                            decReturnType = valType rt,
+                                                            decVarargs = FixedArgs,
+                                                            decParams = map (\ s -> (valType s, [])) [t | Arg _ t _ <- args],
+                                                            funcAlign = Nothing}
+
   let var = LMGlobalVar (mkFastString fName)
                            (LMFunction
-                              LlvmFunctionDecl{decName = mkFastString fName,
-                                               funcLinkage = ExternallyVisible, funcCc = CC_Ccc,
-                                               decReturnType = valType rt,
-                                               decVarargs = FixedArgs,
-                                               decParams = map (\ s -> (valType s, [])) [t | Arg _ t _ <- args],
-                                               funcAlign = Nothing})
+                              decl)
                               ExternallyVisible
                               Nothing
                               Nothing
                               Constant
   addVar fName var
+  return decl
 
 transformVirtArray::TopDef TCU.Type -> Translator LMGlobal
 transformVirtArray (VirtArray _ (Ident name) funcDecls) = do

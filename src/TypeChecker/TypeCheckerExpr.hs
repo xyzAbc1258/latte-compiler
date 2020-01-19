@@ -144,21 +144,16 @@ _checkExpr(EAdd pos  op1 p@(Plus _) op2) = do
 
 _checkExpr (EAdd pos op1 opr@Minus{} op2) = withPos pos >> binOpCheckTrio op1 op2 TCC.Int (\t e1 -> EAdd t e1 (insertNoneType opr))
 
-_checkExpr (ERel p op1 opr@(EQU _) op2) = do
+_checkExpr (ERel p op1 opr op2)  | case opr of EQU{} -> True ; NE{} -> True ; _ -> False ; = do
   e1 <- checkExpr op1
   e2 <- checkExpr op2
   let t1 = getType $ extract e1
   let t2 = getType $ extract e2
-  unless (t1 == t2) $ throwPosError "Equality operator expected objects of same type"
-  when (t1 == TCC.Void) $ throwPosError "Cannot compare void values"
-  simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
-
-_checkExpr (ERel p op1 opr@(NE _) op2) = do
-  e1 <- checkExpr op1
-  e2 <- checkExpr op2
-  let t1 = getType $ extract e1
-  let t2 = getType $ extract e2
-  unless (t1 == t2) $ throwPosError "Inequality operator expected objects of same type"
+  areTypesOk <- case (t1, t2) of
+    (_,_) | t1 == t2 -> return True
+    (TCC.Class c1, TCC.Class c2) -> hasCommonSuperClass c1 c2
+    _ -> return False
+  unless areTypesOk $ throwPosError "Equality operator expected objects of same type, or with common super class"
   when (t1 == TCC.Void) $ throwPosError "Cannot compare void values"
   simplifyExpr $ ERel (RValue TCC.Bool) e1 (insertNoneType opr) e2
 

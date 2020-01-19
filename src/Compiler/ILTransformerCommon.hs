@@ -128,7 +128,7 @@ createConstString s = do
     Nothing -> do
                   c <- gets snd
                   modify (_2 %~ ( + 1))
-                  let nVar = LMGlobalVar (mkfs $ "_cstr_" ++ show c) (LMArray (length s +1) i8) Private Nothing Nothing Constant
+                  let nVar = LMGlobalVar (mkfs $ "_cstr_" ++ show c) (LMArray (sLength (convertString s) +1) i8) Private Nothing Nothing Constant
                   addVar ns nVar
                   return nVar
 

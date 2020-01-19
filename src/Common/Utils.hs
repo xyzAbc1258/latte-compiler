@@ -43,6 +43,9 @@ mapStateType lens ms = StateT $ \s -> runStateT ms (s ^. lens) >>= (\(r, f) -> r
 orElse::Maybe a -> a -> a
 orElse m e = fromMaybe e m
 
+orElseM::(Monad m) => m (Maybe a) -> m a -> m a
+orElseM = liftA2 orElse
+
 liftEndo:: Lens' a b -> E b -> E a
 liftEndo l f x = set' l (f $ x ^. l) x
 
@@ -94,3 +97,19 @@ invertList l = (head <$> l) : invertList (tail <$> l)
 
 traceShow::(Show a) => String -> a -> a
 traceShow p o = trace (p ++ show o) o
+
+convertString::String -> String
+convertString ('\\':'\\': s) = "\\5C" ++ convertString s
+convertString ('\\':'n':s) = "\\0A" ++ convertString s
+convertString ('\\':'t':s) = "\\09" ++ convertString s
+convertString ('\\':'"':s) = "\\22" ++ convertString s
+convertString (c:s) = c : convertString s
+convertString [] = []
+
+sLength::String -> Int
+sLength ('\\':'5':'C':s) = 1 + sLength s
+sLength ('\\':'0':'A':s) = 1 + sLength s
+sLength ('\\':'0':'9':s) = 1 + sLength s
+sLength ('\\':'2':'2':s) = 1 + sLength s
+sLength (_:s) = 1 + sLength s
+sLength [] = 0

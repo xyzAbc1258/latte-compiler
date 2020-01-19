@@ -1,0 +1,187 @@
+-- programs ------------------------------------------------
+
+entrypoints Program ;
+
+Program.   Program ::= [TopDef] ;
+
+FnDef.	   TopDef ::= Type Ident "(" [Arg] ")" Block ;
+
+separator nonempty TopDef "" ;
+
+Arg. 	   Arg ::= Type Ident;
+
+separator  Arg "," ;
+
+ClDef.     TopDef ::= "class" Ident Ext "{" [ClDecl]  "}" ;
+
+separator nonempty ClDecl "" ;
+
+ClFld.	   ClDecl ::= Type Ident ";" ;
+
+ClFunc.    ClDecl ::= Type Ident "(" [Arg] ")" Block ;
+
+NoExt.	   Ext ::= ;
+
+ClassExt.  Ext ::= "extends" Ident ;
+
+internal Struct. TopDef ::= "struct" Ident [Type] ;
+
+internal VirtArray. TopDef ::= "virtArray" Ident "(" [FuncDec] ")" ;
+
+FuncDecl. FuncDec ::= Type Ident "(" [Type] ")" ;
+
+separator FuncDec "," ;
+
+-- statements ----------------------------------------------
+
+Block.     Block ::= "{" [Stmt] "}" ;
+
+separator  Stmt "" ;
+
+Empty.     Stmt ::= ";" ;
+
+BStmt.     Stmt ::= Block ;
+
+internal NamedBStmt. Stmt ::= Ident ":" Block;
+
+Decl.      Stmt ::= Type [Item] ";" ;
+
+NoInit.    Item ::= Ident ; 
+
+Init.      Item ::= Ident "=" Expr ;
+
+separator nonempty Item "," ;
+
+Ass.       Stmt ::= Expr6 "=" Expr  ";" ;
+
+Incr.      Stmt ::= Expr6 "++"  ";" ;
+
+Decr.      Stmt ::= Expr6 "--"  ";" ;
+
+Ret.       Stmt ::= "return" Expr ";" ;
+
+VRet.      Stmt ::= "return" ";" ;
+
+Cond.      Stmt ::= "if" "(" Expr ")" Stmt  ;
+
+CondElse.  Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt  ;
+
+While.     Stmt ::= "while" "(" Expr ")" Stmt ;
+
+For.       Stmt ::= "for" "(" Type Ident ":" Expr ")" Stmt ;
+
+SExp.      Stmt ::= Expr  ";" ;
+
+internal CondJump.   Stmt ::= "if " Expr "jump" Ident "else" Ident ;
+
+internal Jump. Stmt ::= "jump" Ident ;
+
+-- Types ---------------------------------------------------
+
+Int.       Type1 ::= "int" ;
+
+Str.       Type1 ::= "string" ;
+
+Bool.      Type1 ::= "boolean" ;
+
+Void.      Type1 ::= "void" ;
+
+Class.	   Type1 ::= Ident ;
+
+Array.	   Type ::= Type "[]" ;
+
+_.		   Type ::= Type1 ; 
+
+internal   Fun. Type ::= Type "(" [Type] ")" ;
+
+internal Ptr. Type ::= Type ;
+
+separator  Type "," ;
+
+
+-- Expressions ---------------------------------------------
+
+internal EVersVar. Expr7 ::= Ident "_" Integer ;
+
+internal EPhi. Expr7 ::= "phi" "(" [BranchV] ")" ;
+
+BranchVar. BranchV ::= Expr7 Ident ;
+
+separator BranchV "," ;
+
+EVar.      Expr7 ::= Ident ;
+
+ELitInt.   Expr7 ::= Integer ;
+
+ELitTrue.  Expr7 ::= "true" ;
+
+ELitFalse. Expr7 ::= "false" ;
+
+EFldAcc.   Expr7 ::= Expr7 "." Ident ;
+
+EArrAcc.   Expr7 ::= Expr7 "[" Expr3 "]" ;
+
+EApp.      Expr7 ::= Expr7 "(" [Expr] ")" ;
+
+EString.   Expr7 ::= String ;
+
+ENull.     Expr7 ::= "(" Type ")null" ;
+
+ENewObj.   Expr6 ::= "new" Type1 ;
+
+ENewArr.   Expr6 ::= "new" Type "[" Expr3 "]" ;
+
+Neg.       Expr5 ::= "-" Expr6 ;
+
+Not.       Expr5 ::= "!" Expr6 ;
+
+EMul.      Expr4 ::= Expr4 MulOp Expr5 ;
+
+EAdd.      Expr3 ::= Expr3 AddOp Expr4 ;
+
+ERel.      Expr2 ::= Expr2 RelOp Expr3 ;
+
+EAnd.      Expr1 ::= Expr2 "&&" Expr1 ;
+
+EOr.       Expr ::= Expr1 "||" Expr ;
+
+internal   EVirtCall. Expr ::= Expr "._vtable." Integer "(" [Expr] ")";
+
+internal   EFldNoAcc. Expr ::= Expr "." Integer ;
+
+coercions  Expr 7 ;
+
+separator  Expr "," ;
+
+-- operators -----------------------------------------------
+
+Plus.      AddOp ::= "+" ;
+
+Minus.     AddOp ::= "-" ;
+
+Times.     MulOp ::= "*" ;
+
+Div.       MulOp ::= "/" ;
+
+Mod.       MulOp ::= "%" ;
+
+LTH.       RelOp ::= "<" ;
+
+LE.        RelOp ::= "<=" ;
+
+GTH.       RelOp ::= ">" ;
+
+GE.        RelOp ::= ">=" ;
+
+EQU.       RelOp ::= "==" ;
+
+NE.        RelOp ::= "!=" ;
+
+-- comments ------------------------------------------------
+
+comment    "#" ;
+
+comment    "//" ;
+
+comment    "/*" "*/" ;
+

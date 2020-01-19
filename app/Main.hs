@@ -1,14 +1,14 @@
 module Main where
 
 
-import System.IO ( stdin, hGetContents )
+import System.IO ( stdin, hGetContents, hPutStrLn, stderr )
 import Control.Monad (when)
 import System.Exit
 import System.FilePath
 import System.Environment
+import System.Process
 import Outputable
 
-import Common.Utils
 import LexLatte
 import ParLatte
 import SkelLatte
@@ -34,16 +34,16 @@ runFile p f = readFile f >>= run f p
 
 run ::(Positionable a) =>  FilePath -> ParseFun (Program a) -> String -> IO ()
 run f p s = let ts = myLLexer s in case p ts of
-           Bad s    -> do putStrLn "ERROR!"
+           Bad s    -> do hPutStrLn stderr "ERROR"
                           putStrLn "Parse Failed..."
                           putStr "Tokens:"
                           putStr $ show ts
                           putStrLn s
                           exitFailure
            Ok  tree -> case checkTypes tree of
-                            Left s -> putStrLn "ERROR!" >> putStrLn s >> exitFailure
+                            Left s -> hPutStrLn stderr "ERROR" >> putStrLn s >> exitFailure
                             Right s -> do
-                                        putStrLn "OK"
+                                        hPutStrLn stderr "OK"
                                         compileAndSaveTree f s
                                         exitSuccess
 
@@ -52,14 +52,20 @@ run f p s = let ts = myLLexer s in case p ts of
 compileAndSaveTree :: FilePath -> Program TCU.Type -> IO ()
 compileAndSaveTree s tree
  = do
+      progName <- getExecutablePath
+      let runtimeLib = takeDirectory progName </> "lib" </> "runtime.bc"
       let baseForm = toBaseForm tree
       let blocks = toBlockStructure baseForm
-      writeFile (addExtension s "block") $ printTree blocks
-      let llvm = replace "\0" "" $ toString blocks
-      let full = llvm ++ "\n" ++ stdLib
+      --writeFile (addExtension s "block") $ printTree blocks
+      let llvm = replace "\0" "" $ toString blocks -- dziwny błąd sdoc-a
+      let full = stdLib ++ "\n" ++ llvm
       let f = dropExtension s
       let llFile = addExtension f "ll"
+      let bcFile = addExtension f "bc"
       writeFile llFile full
+      --rLibS <- flip orElse runtimeLib <$> (return $ Just "../../lib/runtime.bc")--lookupEnv "RLIBPATH"
+      callCommand $ "llvm-as -o " ++ bcFile ++ " " ++ llFile
+      callCommand $ "llvm-link -o " ++ bcFile ++ " " ++ bcFile ++ " " ++ runtimeLib
 
 
 showTree :: (Show a, Print a) => Int -> a -> IO ()

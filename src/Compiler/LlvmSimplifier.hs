@@ -10,7 +10,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Maybe
 import Control.Lens
-import Debug.Trace
+import Debug.Trace hiding(traceShow)
 import Unique (getUnique)
 import FastString (appendFS)
 
@@ -54,9 +54,12 @@ removeUnreachableBlocks::E LlvmBlocks
 removeUnreachableBlocks b =
   let p = buildPropagationInfo b in
   let unreachable = p ^. blocks & M.keys & filter (\k -> k /= 1 && isNothing (_preds p M.!? k)) in --bez poprzedników niebędące entry 
-  let reachable = p ^. blocks & M.filterWithKey (\k _ -> k `notElem` unreachable) & M.elems in 
-  let withCorrectedPhis = map (mapStmtInBlock (fixPhis (map (blockLabel . (_blocks p M.!)) unreachable))) reachable in
-  if null unreachable then withCorrectedPhis else removeUnreachableBlocks withCorrectedPhis
+  if null unreachable then b
+  else
+    let reachable = p ^. blocks & M.filterWithKey (\k _ -> k `notElem` unreachable) & M.elems in
+    let labelsToRem = map (blockLabel . (_blocks p M.!)) unreachable in
+    let withCorrectedPhis = map (mapStmtInBlock (fixPhis labelsToRem)) reachable in
+    removeUnreachableBlocks withCorrectedPhis
   where fixPhis toRem (Assignment v (Phi t l)) = Assignment v (Phi t [p | p@(_, LMLocalVar id LMLabel) <- l, id `notElem` toRem])
         fixPhis _ s = s
 
@@ -147,7 +150,7 @@ buildPropagationInfo bs =
    let mapped = M.fromList withIntFiltered in
    PropagationInfo {
      _entry = 1,
-     _blocks = mapped,
+     _blocks = M.fromList withInt,--mapped,
      _preds = M.map (filter (\ e -> not $ M.member e withNoPred)) preds,
      _succs = M.filterWithKey (\k _ -> M.member k preds || k == 1) $ M.fromList succs,
      _imports = M.empty,
